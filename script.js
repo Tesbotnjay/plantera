@@ -1178,34 +1178,6 @@ document.getElementById('dashboard-btn').addEventListener('click', function() {
     loadDashboard();
 });
 
-// Parallax effect for hero section
-window.addEventListener('scroll', function() {
-    const scrolled = window.pageYOffset;
-    const hero = document.getElementById('hero');
-    const heroImages = document.querySelector('.hero-images');
-    const heroText = document.querySelector('.hero-text');
-
-    if (hero) {
-        // Reduce parallax intensity on mobile
-        const isMobile = window.innerWidth <= 768;
-        const parallaxMultiplier = isMobile ? 0.2 : 0.5;
-
-        // Parallax background
-        hero.style.transform = `translateY(${scrolled * parallaxMultiplier}px)`;
-
-        // Parallax for images (less intense on mobile)
-        if (heroImages) {
-            const imageMultiplier = isMobile ? 0.1 : 0.3;
-            heroImages.style.transform = `translateY(${scrolled * imageMultiplier}px)`;
-        }
-
-        // Parallax for text (minimal on mobile)
-        if (heroText) {
-            const textMultiplier = isMobile ? 0.05 : 0.2;
-            heroText.style.transform = `translateY(${scrolled * textMultiplier}px)`;
-        }
-    }
-});
 
 window.onload = async function() {
     setTimeout(async () => {
