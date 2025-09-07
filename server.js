@@ -342,7 +342,7 @@ app.get('/test-session', verifyToken, (req, res) => {
     });
 });
 
-// Get user orders (simple file-based)
+// Get user orders (database-first with file fallback)
 app.get('/orders', verifyToken, async (req, res) => {
     // Add cache control headers
     res.set({
@@ -354,16 +354,60 @@ app.get('/orders', verifyToken, async (req, res) => {
     console.log('Orders request for user:', req.user.username, 'role:', req.user.role);
 
     try {
-        const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+        // First try to get data from database
+        const dbConnected = await testDatabaseConnection();
+        if (dbConnected) {
+            try {
+                const result = await pool.query('SELECT * FROM orders ORDER BY order_date DESC');
+                const ordersData = result.rows.map(row => ({
+                    id: row.id,
+                    userId: row.user_id,
+                    batchId: row.batch_id,
+                    quantity: row.quantity,
+                    phone: row.phone,
+                    address: row.address,
+                    delivery: row.delivery,
+                    payment: row.payment,
+                    status: row.status,
+                    orderDate: row.order_date,
+                    totalPrice: row.total_price,
+                    lastUpdated: row.last_updated
+                }));
 
-        if (req.user.role === 'admin') {
-            console.log('Admin requesting all orders:', ordersData.length);
-            res.json(ordersData);
-        } else {
-            // Filter orders for the specific user
-            const userOrders = ordersData.filter(order => order.userId === req.user.username);
-            console.log('Orders for user', req.user.username + ':', userOrders.length);
-            res.json(userOrders);
+                let filteredOrders;
+                if (req.user.role === 'admin') {
+                    filteredOrders = ordersData;
+                    console.log('Admin requesting all orders from database:', ordersData.length);
+                } else {
+                    // Filter orders for the specific user
+                    filteredOrders = ordersData.filter(order => order.userId === req.user.username);
+                    console.log('Orders for user', req.user.username + ' from database:', filteredOrders.length);
+                }
+                return res.json(filteredOrders);
+            } catch (dbError) {
+                console.error('Database query error:', dbError);
+                console.log('Falling back to file system...');
+            }
+        }
+
+        // Fallback to file system if database is not available
+        try {
+            const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+
+            if (req.user.role === 'admin') {
+                console.log('Admin requesting all orders from file system:', ordersData.length);
+                res.json(ordersData);
+            } else {
+                // Filter orders for the specific user
+                const userOrders = ordersData.filter(order => order.userId === req.user.username);
+                console.log('Orders for user', req.user.username + ' from file system:', userOrders.length);
+                res.json(userOrders);
+            }
+        } catch (fileError) {
+            console.error('File system error:', fileError);
+            // Return empty array if both database and file fail
+            console.log('Returning empty orders array');
+            res.json([]);
         }
     } catch (error) {
         console.error('Orders error:', error);
@@ -461,7 +505,7 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-// Get batches (simple file-based)
+// Get batches (database-first with file fallback)
 app.get('/batches', async (req, res) => {
     // Add cache control headers to prevent browser caching
     res.set({
@@ -471,9 +515,38 @@ app.get('/batches', async (req, res) => {
     });
 
     try {
-        const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        console.log('Serving batches to client:', batchesData.length, 'batches');
-        res.json(batchesData);
+        // First try to get data from database
+        const dbConnected = await testDatabaseConnection();
+        if (dbConnected) {
+            try {
+                const result = await pool.query('SELECT * FROM batches ORDER BY id');
+                const batchesData = result.rows.map(row => ({
+                    id: row.id,
+                    plantDate: row.plant_date,
+                    quantity: row.quantity,
+                    stock: row.stock,
+                    readyForSale: row.ready_for_sale
+                }));
+
+                console.log('Serving batches from database:', batchesData.length, 'batches');
+                return res.json(batchesData);
+            } catch (dbError) {
+                console.error('Database query error:', dbError);
+                console.log('Falling back to file system...');
+            }
+        }
+
+        // Fallback to file system if database is not available
+        try {
+            const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+            console.log('Serving batches from file system:', batchesData.length, 'batches');
+            res.json(batchesData);
+        } catch (fileError) {
+            console.error('File system error:', fileError);
+            // Return empty array if both database and file fail
+            console.log('Returning empty batches array');
+            res.json([]);
+        }
     } catch (error) {
         console.error('Batches error:', error);
         res.status(500).json({ error: 'Unable to fetch batches data' });
