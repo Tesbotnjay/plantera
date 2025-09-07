@@ -257,6 +257,11 @@ async function forceRefreshData() {
         if (document.getElementById('kelola-section').classList.contains('active') && currentUser && currentUser.role === 'admin') {
             displayBatches();
             loadAdminOrders();
+        } else if (document.getElementById('kelola-section').classList.contains('active') && (!currentUser || currentUser.role !== 'admin')) {
+            // If management section is active but user is not admin, switch to dashboard
+            console.log('Management section active for non-admin user, switching to dashboard');
+            document.getElementById('kelola-section').classList.remove('active');
+            document.getElementById('dashboard-btn').click();
         }
 
         if (document.getElementById('dashboard-section').classList.contains('active')) {
@@ -984,6 +989,8 @@ document.getElementById('kelola-btn').addEventListener('click', function() {
     } else {
         // If customer tries to access management, redirect to dashboard
         alert('Akses ditolak! Hanya admin yang bisa mengakses fitur management.');
+        // Make sure management section is not active
+        document.getElementById('kelola-section').classList.remove('active');
         document.getElementById('dashboard-btn').click();
     }
 });
