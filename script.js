@@ -369,8 +369,6 @@ async function login() {
         const response = await fetch('https://plantera-production.up.railway.app/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            mode: 'cors',
             body: JSON.stringify({ username, password })
         });
 
@@ -444,7 +442,6 @@ async function register() {
         const response = await fetch('https://plantera-production.up.railway.app/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
             body: JSON.stringify({ username, password })
         });
 
