@@ -1,19 +1,27 @@
 {
   "version": 2,
+  "builds": [
+    {
+      "src": "home.html",
+      "use": "@vercel/static"
+    }
+  ],
   "routes": [
     {
       "src": "/style.css",
-      "dest": "/style.css",
-      "headers": {
-        "Content-Type": "text/css"
-      }
+      "dest": "/style.css"
     },
     {
       "src": "/script.js",
-      "dest": "/script.js",
-      "headers": {
-        "Content-Type": "application/javascript"
-      }
+      "dest": "/script.js"
+    },
+    {
+      "src": "/cabai.jpeg",
+      "dest": "/cabai.jpeg"
+    },
+    {
+      "src": "/foto cabai.jpg",
+      "dest": "/foto cabai.jpg"
     },
     {
       "src": "/(.*)",
