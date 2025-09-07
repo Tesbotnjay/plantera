@@ -391,7 +391,20 @@ function sendToTelegram(message) {
 
 // Health check endpoint for Railway
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+    res.status(200).send('OK');
+});
+
+// Additional health check endpoints that Railway might expect
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'home.html'));
+});
+
+app.get('/status', (req, res) => {
+    res.status(200).json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
