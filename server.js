@@ -46,10 +46,10 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // Set to true in production with HTTPS
+        secure: true, // HTTPS required for production
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: 'lax'
+        sameSite: 'none' // Allow cross-origin cookies
     },
     name: 'plantera.sid'
 }));
