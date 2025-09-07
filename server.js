@@ -251,32 +251,78 @@ if (!fs.existsSync(ORDERS_FILE)) {
     fs.writeFileSync(ORDERS_FILE, JSON.stringify([]));
 }
 
-// JWT Token-based authentication
+// JWT Token-based authentication (database-first with file fallback)
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
     console.log('Login attempt for:', username);
 
     try {
-        const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-        const user = usersData.find(u => u.username === username && u.password === password);
+        // First try to authenticate from database
+        const dbConnected = await testDatabaseConnection();
+        if (dbConnected) {
+            try {
+                const result = await pool.query(
+                    'SELECT username, password, role FROM users WHERE username = $1',
+                    [username]
+                );
 
-        if (user) {
-            // Generate JWT token
-            const token = jwt.sign(
-                { username: user.username, role: user.role },
-                JWT_SECRET,
-                { expiresIn: '24h' }
-            );
+                if (result.rows.length > 0) {
+                    const user = result.rows[0];
 
-            console.log('Login successful, token generated for:', user.username);
-            res.json({
-                success: true,
-                role: user.role,
-                token: token
-            });
-        } else {
-            console.log('Login failed: Invalid credentials');
-            res.json({ success: false });
+                    // Check password
+                    if (user.password === password) {
+                        // Generate JWT token
+                        const token = jwt.sign(
+                            { username: user.username, role: user.role },
+                            JWT_SECRET,
+                            { expiresIn: '24h' }
+                        );
+
+                        console.log('Login successful from database, token generated for:', user.username);
+                        return res.json({
+                            success: true,
+                            role: user.role,
+                            token: token
+                        });
+                    } else {
+                        console.log('Login failed: Invalid password for user from database');
+                        return res.json({ success: false });
+                    }
+                }
+                // If user not found in database, continue to file system check
+                console.log('User not found in database, checking file system...');
+            } catch (dbError) {
+                console.error('Database query error during login:', dbError);
+                console.log('Falling back to file system...');
+            }
+        }
+
+        // Fallback to file system if database is not available or user not found
+        try {
+            const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+            const user = usersData.find(u => u.username === username && u.password === password);
+
+            if (user) {
+                // Generate JWT token
+                const token = jwt.sign(
+                    { username: user.username, role: user.role },
+                    JWT_SECRET,
+                    { expiresIn: '24h' }
+                );
+
+                console.log('Login successful from file system, token generated for:', user.username);
+                res.json({
+                    success: true,
+                    role: user.role,
+                    token: token
+                });
+            } else {
+                console.log('Login failed: Invalid credentials');
+                res.json({ success: false });
+            }
+        } catch (fileError) {
+            console.error('File system error during login:', fileError);
+            res.status(500).json({ success: false, error: 'Login failed' });
         }
     } catch (error) {
         console.error('Login error:', error);
