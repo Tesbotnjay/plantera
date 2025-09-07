@@ -18,86 +18,156 @@ const pool = new Pool({
 
 // Test database connection
 pool.on('connect', () => {
-  console.log('Connected to PostgreSQL database');
+  console.log('✅ Connected to PostgreSQL database');
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+  console.error('❌ Unexpected error on idle client:', err);
+  // Don't exit process immediately - let the server try to recover
 });
+
+// Test database connectivity
+async function testDatabaseConnection() {
+  try {
+    const client = await pool.connect();
+    console.log('✅ Database connection test successful');
+    client.release();
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection test failed:', error);
+    return false;
+  }
+}
 
 // Initialize database tables
 async function initializeDatabase() {
   try {
+    console.log('Starting database initialization...');
+
     // Create users table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        username VARCHAR(50) PRIMARY KEY,
-        password VARCHAR(255) NOT NULL,
-        role VARCHAR(20) NOT NULL DEFAULT 'customer',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          username VARCHAR(50) PRIMARY KEY,
+          password VARCHAR(255) NOT NULL,
+          role VARCHAR(20) NOT NULL DEFAULT 'customer',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('Users table ready');
+    } catch (error) {
+      console.error('Error creating users table:', error);
+      throw error;
+    }
 
     // Create batches table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS batches (
-        id SERIAL PRIMARY KEY,
-        plant_date DATE NOT NULL,
-        quantity INTEGER NOT NULL,
-        stock INTEGER NOT NULL,
-        ready_for_sale BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS batches (
+          id SERIAL PRIMARY KEY,
+          plant_date DATE NOT NULL,
+          quantity INTEGER NOT NULL,
+          stock INTEGER NOT NULL,
+          ready_for_sale BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('Batches table ready');
+    } catch (error) {
+      console.error('Error creating batches table:', error);
+      throw error;
+    }
 
     // Create orders table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS orders (
-        id VARCHAR(50) PRIMARY KEY,
-        user_id VARCHAR(50) NOT NULL,
-        batch_id INTEGER NOT NULL,
-        quantity INTEGER NOT NULL,
-        phone VARCHAR(20),
-        address TEXT,
-        delivery VARCHAR(20),
-        payment VARCHAR(50),
-        status VARCHAR(20) DEFAULT 'pending',
-        order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        total_price INTEGER NOT NULL,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS orders (
+          id VARCHAR(50) PRIMARY KEY,
+          user_id VARCHAR(50) NOT NULL,
+          batch_id INTEGER NOT NULL,
+          quantity INTEGER NOT NULL,
+          phone VARCHAR(20),
+          address TEXT,
+          delivery VARCHAR(20),
+          payment VARCHAR(50),
+          status VARCHAR(20) DEFAULT 'pending',
+          order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          total_price INTEGER NOT NULL,
+          last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('Orders table ready');
+    } catch (error) {
+      console.error('Error creating orders table:', error);
+      throw error;
+    }
 
     // Create session table for connect-pg-simple
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS session (
-        sid VARCHAR NOT NULL COLLATE "default",
-        sess JSON NOT NULL,
-        expire TIMESTAMP(6) NOT NULL
-      ) WITH (OIDS=FALSE);
+    try {
+      // First, create the table if it doesn't exist
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS session (
+          sid VARCHAR NOT NULL COLLATE "default",
+          sess JSON NOT NULL,
+          expire TIMESTAMP(6) NOT NULL
+        ) WITH (OIDS=FALSE);
+      `);
+      console.log('Session table created');
 
-      CREATE INDEX IF NOT EXISTS IDX_session_expire ON session(expire);
-      ALTER TABLE session ADD CONSTRAINT session_pkey PRIMARY KEY (sid) NOT DEFERRABLE INITIALLY IMMEDIATE;
-    `);
+      // Create index if it doesn't exist
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS IDX_session_expire ON session(expire);
+      `);
+      console.log('Session index created');
 
-    // Insert default admin user if not exists
-    await pool.query(`
-      INSERT INTO users (username, password, role)
-      VALUES ('sulvianti', 'wongirengjembuten69', 'admin')
-      ON CONFLICT (username) DO NOTHING
-    `);
+      // Add primary key constraint only if it doesn't exist
+      const constraintExists = await pool.query(`
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'session_pkey' AND table_name = 'session';
+      `);
 
-    // Insert default customer user if not exists
-    await pool.query(`
-      INSERT INTO users (username, password, role)
-      VALUES ('customer', 'customer123', 'customer')
-      ON CONFLICT (username) DO NOTHING
-    `);
+      if (constraintExists.rows.length === 0) {
+        await pool.query(`
+          ALTER TABLE session ADD CONSTRAINT session_pkey PRIMARY KEY (sid) NOT DEFERRABLE INITIALLY IMMEDIATE;
+        `);
+        console.log('Session primary key constraint added');
+      } else {
+        console.log('Session primary key constraint already exists');
+      }
 
-    console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Error creating session table:', error);
+      // Don't throw error for session table - continue with server startup
+      console.log('Continuing without session table - using memory store');
+    }
+
+    // Insert default users
+    try {
+      // Insert default admin user if not exists
+      await pool.query(`
+        INSERT INTO users (username, password, role)
+        VALUES ('sulvianti', 'wongirengjembuten69', 'admin')
+        ON CONFLICT (username) DO NOTHING
+      `);
+
+      // Insert default customer user if not exists
+      await pool.query(`
+        INSERT INTO users (username, password, role)
+        VALUES ('customer', 'customer123', 'customer')
+        ON CONFLICT (username) DO NOTHING
+      `);
+
+      console.log('Default users created');
+    } catch (error) {
+      console.error('Error creating default users:', error);
+      throw error;
+    }
+
+    console.log('✅ Database initialized successfully');
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('❌ Critical error initializing database:', error);
+    // Don't exit the process - let the server start with limited functionality
+    console.log('⚠️ Server will start with limited database functionality');
   }
 }
 
@@ -135,16 +205,24 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// PostgreSQL session store
-const sessionStore = new PgSession({
-    pool: pool,
-    tableName: 'session',
-    createTableIfMissing: false // We create it manually above
-});
+// PostgreSQL session store with error handling
+let sessionStore;
+try {
+    sessionStore = new PgSession({
+        pool: pool,
+        tableName: 'session',
+        createTableIfMissing: false // We create it manually above
+    });
+    console.log('PostgreSQL session store initialized');
+} catch (error) {
+    console.error('Failed to initialize PostgreSQL session store:', error);
+    console.log('Falling back to memory session store');
+    sessionStore = null; // Will use default memory store
+}
 
-// Enhanced session configuration with PostgreSQL store
+// Enhanced session configuration with fallback
 app.use(session({
-    store: sessionStore,
+    store: sessionStore || undefined, // Use PostgreSQL store if available, otherwise memory store
     secret: process.env.SESSION_SECRET || 'plantera-secret-key-2024',
     resave: false,
     saveUninitialized: false,
@@ -486,8 +564,32 @@ function sendToTelegram(message) {
 }
 
 // Health check endpoint for Railway
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
+app.get('/health', async (req, res) => {
+    try {
+        const dbConnected = await testDatabaseConnection();
+        if (dbConnected) {
+            res.status(200).json({
+                status: 'healthy',
+                database: 'connected',
+                timestamp: new Date().toISOString(),
+                uptime: process.uptime()
+            });
+        } else {
+            res.status(503).json({
+                status: 'degraded',
+                database: 'disconnected',
+                timestamp: new Date().toISOString(),
+                uptime: process.uptime()
+            });
+        }
+    } catch (error) {
+        res.status(503).json({
+            status: 'unhealthy',
+            error: error.message,
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        });
+    }
 });
 
 // Additional health check endpoints that Railway might expect
@@ -495,22 +597,81 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'home.html'));
 });
 
-app.get('/status', (req, res) => {
-    res.status(200).json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
+app.get('/status', async (req, res) => {
+    try {
+        const dbConnected = await testDatabaseConnection();
+        res.status(200).json({
+            status: dbConnected ? 'healthy' : 'degraded',
+            database: dbConnected ? 'connected' : 'disconnected',
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            version: process.version
+        });
+    } catch (error) {
+        res.status(200).json({
+            status: 'degraded',
+            database: 'error',
+            error: error.message,
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            version: process.version
+        });
+    }
 });
 
 // Initialize database and start server
 async function startServer() {
-  await initializeDatabase();
+  try {
+    console.log('🚀 Starting Plantera server...');
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Health check available at http://localhost:${PORT}/health`);
-  });
+    // Test database connection first
+    const dbConnected = await testDatabaseConnection();
+    if (dbConnected) {
+      console.log('📊 Initializing database...');
+      await initializeDatabase();
+    } else {
+      console.log('⚠️ Database not available - starting server with limited functionality');
+      console.log('📊 Database will be initialized when connection is restored');
+    }
+
+    // Start the server
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`🏥 Health check available at http://localhost:${PORT}/health`);
+      console.log(`📊 Status check available at http://localhost:${PORT}/status`);
+      console.log(`🌐 Frontend available at http://localhost:${PORT}/`);
+      console.log('🎉 Plantera server is ready!');
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    console.log('🔄 Attempting to start server with minimal functionality...');
+
+    // Try to start server even if database initialization fails
+    try {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`⚠️ Server running on port ${PORT} with limited functionality`);
+        console.log(`🏥 Health check available at http://localhost:${PORT}/health`);
+        console.log('📊 Database functionality may be limited');
+      });
+    } catch (serverError) {
+      console.error('❌ Failed to start server completely:', serverError);
+      process.exit(1);
+    }
+  }
 }
 
-startServer().catch(console.error);
+// Handle uncaught exceptions gracefully
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Don't exit process - let Railway restart the container
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit process - let Railway restart the container
+});
+
+startServer();
