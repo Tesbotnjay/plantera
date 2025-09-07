@@ -480,11 +480,15 @@ function updateUI() {
         if (currentUser.role === 'admin') {
             document.getElementById('kelola-btn').style.display = 'inline';
             document.getElementById('dashboard-btn').style.display = 'inline';
+            // Show batch form for admin
+            document.getElementById('batch-form').style.display = 'block';
         } else if (currentUser.role === 'customer') {
             document.getElementById('kelola-btn').style.display = 'none';
             document.getElementById('dashboard-btn').style.display = 'inline';
             // Ensure management section is never accessible to customers
             document.getElementById('kelola-section').style.display = 'none';
+            // Hide batch form for customers
+            document.getElementById('batch-form').style.display = 'none';
         }
 
         // Auto-switch to appropriate default tab
@@ -498,6 +502,8 @@ function updateUI() {
         document.getElementById('nav-tabs').style.display = 'none';
         document.getElementById('logout-btn').style.display = 'none';
         document.getElementById('user-info').textContent = '';
+        // Hide batch form when not logged in
+        document.getElementById('batch-form').style.display = 'none';
         // Reset to login form
         showLoginForm();
     }
@@ -880,6 +886,13 @@ async function updateOrderStatus(orderId, newStatus) {
 
 document.getElementById('batch-form').addEventListener('submit', function(e) {
     e.preventDefault();
+
+    // Check if user is admin before allowing batch creation
+    if (!currentUser || currentUser.role !== 'admin') {
+        alert('Akses ditolak! Hanya admin yang bisa menambah batch.');
+        return;
+    }
+
     const quantity = parseInt(document.getElementById('quantity').value);
     const plantDate = document.getElementById('plant-date').value;
     addBatch(quantity, plantDate);
