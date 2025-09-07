@@ -26,21 +26,22 @@ function getAuthHeaders(additionalHeaders = {}) {
 }
 
 async function loadBatches() {
-    // Check if user is authenticated before making API call
-    if (!isAuthenticated()) {
-        console.log('User not authenticated, skipping loadBatches');
-        return;
-    }
-
     try {
         // Add cache-busting parameter to prevent browser caching issues
         const cacheBust = Date.now();
+
+        // For non-authenticated users, don't send auth headers
+        const headers = isAuthenticated() ? getAuthHeaders({
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        }) : {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        };
+
         const response = await fetch(`https://plantera-production.up.railway.app/batches?_t=${cacheBust}`, {
             method: 'GET',
-            headers: getAuthHeaders({
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            })
+            headers: headers
         });
 
         if (!response.ok) {
@@ -569,6 +570,9 @@ async function checkSession() {
         console.log('No token found, user needs to login');
         currentUser = null;
         updateUI();
+        // Load batches for non-authenticated users
+        await loadBatches();
+        displayAvailableStock();
         return;
     }
 
@@ -590,12 +594,12 @@ async function checkSession() {
 
         updateUI();
 
-        // Only load data if user is authenticated
+        // Load data regardless of authentication status
+        await loadBatches();
         if (currentUser) {
-            await loadBatches();
-            displayBatches();
-            displayAvailableStock();
+            displayBatches(); // Only show admin batches if authenticated
         }
+        displayAvailableStock();
     } catch (error) {
         if (error.message === 'Authentication required. Please login.') {
             console.log('No token found, user needs to login');
@@ -607,7 +611,9 @@ async function checkSession() {
             localStorage.removeItem('token');
         }
         updateUI();
-        // Don't load data if authentication failed
+        // Load batches even if authentication failed
+        await loadBatches();
+        displayAvailableStock();
     }
 }
 
@@ -1187,6 +1193,11 @@ window.addEventListener('scroll', function() {
 window.onload = async function() {
     setTimeout(async () => {
         await checkSession();
+
+        // Always load batches for display, regardless of authentication status
+        await loadBatches();
+        displayAvailableStock();
+
         document.getElementById('loading-screen').style.display = 'none';
 
         // Initialize search and filter functionality
