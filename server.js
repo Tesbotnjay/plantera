@@ -5,6 +5,7 @@ const cors = require('cors');
 const session = require('express-session');
 const https = require('https');
 const { Pool } = require('pg');
+const PgSession = require('connect-pg-simple')(session);
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -68,6 +69,18 @@ async function initializeDatabase() {
       )
     `);
 
+    // Create session table for connect-pg-simple
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS session (
+        sid VARCHAR NOT NULL COLLATE "default",
+        sess JSON NOT NULL,
+        expire TIMESTAMP(6) NOT NULL
+      ) WITH (OIDS=FALSE);
+
+      CREATE INDEX IF NOT EXISTS IDX_session_expire ON session(expire);
+      ALTER TABLE session ADD CONSTRAINT session_pkey PRIMARY KEY (sid) NOT DEFERRABLE INITIALLY IMMEDIATE;
+    `);
+
     // Insert default admin user if not exists
     await pool.query(`
       INSERT INTO users (username, password, role)
@@ -122,11 +135,19 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// Enhanced session configuration
+// PostgreSQL session store
+const sessionStore = new PgSession({
+    pool: pool,
+    tableName: 'session',
+    createTableIfMissing: false // We create it manually above
+});
+
+// Enhanced session configuration with PostgreSQL store
 app.use(session({
+    store: sessionStore,
     secret: process.env.SESSION_SECRET || 'plantera-secret-key-2024',
-    resave: true, // Changed to true for Railway
-    saveUninitialized: true, // Changed to true for Railway
+    resave: false,
+    saveUninitialized: false,
     cookie: {
         secure: false, // Set to false for Railway (internal communication)
         httpOnly: true,
