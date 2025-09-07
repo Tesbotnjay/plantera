@@ -715,12 +715,23 @@ async function refreshSession() {
     return false;
 }
 
+// Prevent multiple simultaneous admin order loads
+let isLoadingAdminOrders = false;
+
 // Admin Order Management Functions
 async function loadAdminOrders() {
     if (!currentUser || currentUser.role !== 'admin') {
         console.log('Not admin or not logged in, skipping admin orders load');
         return;
     }
+
+    // Prevent multiple simultaneous calls
+    if (isLoadingAdminOrders) {
+        console.log('Admin orders already loading, skipping...');
+        return;
+    }
+
+    isLoadingAdminOrders = true;
 
     try {
         const response = await fetch('https://plantera-production.up.railway.app/orders', {
@@ -736,6 +747,7 @@ async function loadAdminOrders() {
             const refreshed = await refreshSession();
             if (refreshed) {
                 // Retry the request after session refresh
+                isLoadingAdminOrders = false;
                 return loadAdminOrders();
             }
         }
@@ -753,6 +765,8 @@ async function loadAdminOrders() {
         displayAdminOrders(ordersArray);
     } catch (error) {
         console.error('Error loading admin orders:', error);
+    } finally {
+        isLoadingAdminOrders = false;
     }
 }
 
