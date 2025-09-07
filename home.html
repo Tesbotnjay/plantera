@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plantera</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Plantera</h1>
+        <p class="subtitle">Khusus Wilayah Sekitar Samarinda - Bibit Cabai Berkualitas Tinggi</p>
+        <div class="hamburger" onclick="toggleMenu()">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+        <div id="menu" class="menu">
+            <div id="login-section">
+                <div id="login-form">
+                    <input type="text" id="username" placeholder="Username">
+                    <input type="password" id="password" placeholder="Password">
+                    <button onclick="login()">Login</button>
+                    <button onclick="showRegisterForm()" id="register-link">Daftar Akun Baru</button>
+                </div>
+                <div id="register-form" style="display: none;">
+                    <input type="text" id="reg-username" placeholder="Username Baru">
+                    <input type="password" id="reg-password" placeholder="Password">
+                    <input type="password" id="reg-confirm-password" placeholder="Konfirmasi Password">
+                    <button onclick="register()">Daftar</button>
+                    <button onclick="showLoginForm()" id="login-link">Kembali ke Login</button>
+                </div>
+                <button onclick="logout()" style="display: none;" id="logout-btn">Logout</button>
+                <span id="user-info"></span>
+            </div>
+            <nav id="nav-tabs" style="display: none;">
+                <button id="beranda-btn" class="tab-btn active">Beranda</button>
+                <button id="dashboard-btn" class="tab-btn">Dashboard</button>
+                <button id="kelola-btn" class="tab-btn admin-only" style="display: none;">Kelola</button>
+                <button id="refresh-btn" class="tab-btn refresh-btn" onclick="forceRefreshData()" title="Refresh Data">🔄</button>
+                <button id="session-btn" class="tab-btn session-btn" onclick="refreshSession()" title="Refresh Session">🔑</button>
+            </nav>
+        </div>
+    </header>
+
+    <section id="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <h1>Bibit Cabai Berkualitas</h1>
+                <p>Khusus Wilayah Samarinda - Panen Melimpah Menanti Anda</p>
+                <a href="#beranda-section" class="hero-btn">Pesan Sekarang</a>
+            </div>
+            <div class="hero-images">
+                <div class="chili-bg chili-bg-1" style="background-image: url('cabai.jpeg');"></div>
+                <div class="chili-bg chili-bg-2" style="background-image: url('foto cabai.jpg');"></div>
+                <div class="floating-chili">🌶️</div>
+            </div>
+        </div>
+        <div class="hero-overlay"></div>
+    </section>
+
+    <main>
+        <section id="beranda-section" class="tab-content active">
+            <h2>Stok Tersedia</h2>
+            <div class="customer-info-banner">
+                <p>ℹ️ <strong>Tips:</strong> Semua batch dengan stok ditampilkan di sini. Batch dengan tanda ✅ bisa langsung dipesan, sedangkan 🚧 masih dalam proses.</p>
+            </div>
+
+            <!-- Search and Filter Section -->
+            <div class="search-filter-section">
+                <div class="search-container">
+                    <input type="text" id="batch-search" placeholder="Cari batch...">
+                    <button onclick="clearSearch()" id="clear-search" style="display: none;">❌</button>
+                </div>
+                <div class="filter-container">
+                    <select id="status-filter">
+                        <option value="all">Semua Batch</option>
+                        <option value="ready">Siap Dijual ✅</option>
+                        <option value="growing">Dalam Proses 🚧</option>
+                        <option value="available">Ada Stok</option>
+                    </select>
+                    <select id="sort-filter">
+                        <option value="newest">Terbaru</option>
+                        <option value="oldest">Terlama</option>
+                        <option value="stock-high">Stok Terbanyak</option>
+                        <option value="stock-low">Stok Tersedikit</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="available-stock">
+                <!-- Available batches for sale -->
+            </div>
+            <div id="order-form">
+                <h3>Pesan Bibit</h3>
+                <p>Harga per bibit: Rp 5.000</p>
+                <form id="order-form-element">
+                    <label for="order-batch">Pilih Batch:</label>
+                    <select id="order-batch" required></select>
+                    <label for="order-quantity">Jumlah Bibit:</label>
+                    <input type="number" id="order-quantity" min="1" required>
+                    <label for="phone">Nomor Telepon:</label>
+                    <input type="tel" id="phone" required>
+                    <label for="address">Alamat:</label>
+                    <textarea id="address" required></textarea>
+                    <label for="delivery">Pengiriman:</label>
+                    <select id="delivery" required>
+                        <option value="">Pilih Pengiriman</option>
+                        <option value="pickup">Ambil di Tempat</option>
+                        <option value="delivery">Antar ke Alamat (Khusus Samarinda dan Sekitarnya)</option>
+                    </select>
+                    <label for="payment">Metode Pembayaran:</label>
+                    <select id="payment" required>
+                        <option value="cash">Cash</option>
+                        <option value="bca">BCA</option>
+                        <option value="gopay">GoPay</option>
+                        <option value="dana">DANA</option>
+                    </select>
+                    <p id="total-price">Total: Rp 0</p>
+                    <button type="submit">Kirim Pesanan</button>
+                </form>
+                <div id="loading" class="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Memproses pesanan...</p>
+                </div>
+            </div>
+
+        </section>
+
+        <section id="dashboard-section" class="tab-content">
+            <h2>Dashboard Pengguna</h2>
+
+            <div class="dashboard-stats">
+                <div class="stat-card">
+                    <h3>Total Pesanan</h3>
+                    <div class="stat-number" id="total-orders">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Pembelian</h3>
+                    <div class="stat-number" id="total-spent">Rp 0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Pesanan Pending</h3>
+                    <div class="stat-number" id="pending-orders">0</div>
+                </div>
+            </div>
+
+            <h3>Riwayat Pesanan</h3>
+            <div id="order-history">
+                <div class="no-orders">
+                    <p>Belum ada pesanan. <a href="#beranda-section" onclick="switchToBeranda()">Pesan sekarang</a></p>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <div class="help-center">
+                <h3>Pusat Bantuan</h3>
+                <a href="https://mail.google.com/mail/?view=cm&fs=1&to=fahrilas29124@gmail.com" target="_blank" class="contact-btn">📧 Email</a>
+                <a href="https://wa.me/6281234567890" target="_blank" class="contact-btn">📱 WhatsApp</a>
+                <a href="https://instagram.com/bibitcabai" target="_blank" class="contact-btn">📷 Instagram</a>
+            </div>
+        </footer>
+
+        <section id="kelola-section" class="tab-content">
+            <h2>Tambah Batch Bibit Baru</h2>
+            <form id="batch-form">
+                <label for="quantity">Jumlah Bibit:</label>
+                <input type="number" id="quantity" min="1" required>
+                <label for="plant-date">Tanggal Tanam:</label>
+                <input type="date" id="plant-date" required>
+                <button type="submit">Tambah Batch</button>
+            </form>
+
+            <h2>Batch Bibit Saat Ini</h2>
+            <div class="admin-info-box">
+                <h4>ℹ️ Info Penting untuk Admin:</h4>
+                <ul>
+                    <li><strong>Batch Baru:</strong> Customer bisa melihat semua batch yang punya stok, meskipun belum "Siap Dijual"</li>
+                    <li><strong>Mark "Siap Dijual":</strong> Agar customer bisa memesan batch tersebut</li>
+                    <li><strong>Status "Dalam Proses":</strong> Customer lihat progress dan estimasi waktu siap</li>
+                    <li><strong>Real-time Update:</strong> Perubahan langsung terlihat di semua browser customer</li>
+                </ul>
+            </div>
+            <div id="batch-list">
+                <!-- Batches will be displayed here -->
+            </div>
+
+            <h2>Kelola Pesanan</h2>
+            <div id="admin-orders">
+                <!-- Admin order management will be displayed here -->
+            </div>
+        </section>
+    </main>
+
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="chili-animation">
+                🌶️🌶️🌶️
+            </div>
+            <p>Loading Plantera...</p>
+        </div>
+    </div>
+    <div id="notification" class="notification">
+        <div class="notification-content">
+            <span class="close-btn" onclick="closeNotification()">&times;</span>
+            <p id="notification-message"></p>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
