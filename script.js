@@ -1035,10 +1035,20 @@ document.getElementById('order-quantity').addEventListener('input', updateTotal)
 document.getElementById('delivery').addEventListener('change', function() {
     const addressField = document.getElementById('address');
     if (this.value === 'pickup') {
+        // Store current address before changing to pickup
+        if (addressField.value !== '' && addressField.value !== 'Ambil di Tempat') {
+            addressField.dataset.previousAddress = addressField.value;
+        }
         addressField.value = 'Ambil di Tempat';
         addressField.disabled = true;
     } else {
-        addressField.value = '';
+        // Restore previous address if it exists, otherwise clear
+        if (addressField.dataset.previousAddress) {
+            addressField.value = addressField.dataset.previousAddress;
+            delete addressField.dataset.previousAddress;
+        } else {
+            addressField.value = '';
+        }
         addressField.disabled = false;
     }
 });
@@ -1097,8 +1107,15 @@ document.getElementById('order-form-element').addEventListener('submit', async f
                         loadDashboard();
                     }
 
+                    // Reset form without causing scroll/focus issues
                     this.reset();
                     updateTotal();
+
+                    // Prevent any unwanted scrolling by maintaining current scroll position
+                    const currentScroll = window.pageYOffset;
+                    setTimeout(() => {
+                        window.scrollTo(0, currentScroll);
+                    }, 100);
                 }, 2000);
             } else {
                 loading.style.display = 'none';
