@@ -717,6 +717,8 @@ async function refreshSession() {
 
 // Prevent multiple simultaneous admin order loads
 let isLoadingAdminOrders = false;
+let lastAdminOrdersLoad = 0;
+const ADMIN_ORDERS_COOLDOWN = 5000; // 5 seconds cooldown
 
 // Admin Order Management Functions
 async function loadAdminOrders() {
@@ -725,13 +727,15 @@ async function loadAdminOrders() {
         return;
     }
 
-    // Prevent multiple simultaneous calls
-    if (isLoadingAdminOrders) {
-        console.log('Admin orders already loading, skipping...');
+    // Prevent multiple simultaneous calls and enforce cooldown
+    const now = Date.now();
+    if (isLoadingAdminOrders || (now - lastAdminOrdersLoad) < ADMIN_ORDERS_COOLDOWN) {
+        console.log('Admin orders already loading or in cooldown, skipping...');
         return;
     }
 
     isLoadingAdminOrders = true;
+    lastAdminOrdersLoad = now;
 
     try {
         const response = await fetch('https://plantera-production.up.railway.app/orders', {
@@ -746,9 +750,8 @@ async function loadAdminOrders() {
             console.log('401 error, attempting session refresh...');
             const refreshed = await refreshSession();
             if (refreshed) {
-                // Retry the request after session refresh
-                isLoadingAdminOrders = false;
-                return loadAdminOrders();
+                // Don't retry immediately, let the cooldown handle it
+                console.log('Session refreshed, will retry on next call');
             }
         }
 
