@@ -4,7 +4,7 @@ async function loadBatches() {
     try {
         // Add cache-busting parameter to prevent browser caching issues
         const cacheBust = Date.now();
-        const response = await fetch(`https://planteraweb-production.up.railway.app/batches?_t=${cacheBust}`, {
+        const response = await fetch(`https://plantera-production.up.railway.app/batches?_t=${cacheBust}`, {
             credentials: 'include',
             headers: {
                 'Cache-Control': 'no-cache',
@@ -34,7 +34,7 @@ async function loadBatches() {
 async function saveBatches() {
     try {
         const cacheBust = Date.now();
-        const response = await fetch(`https://planteraweb-production.up.railway.app/batches?_t=${cacheBust}`, {
+        const response = await fetch(`https://plantera-production.up.railway.app/batches?_t=${cacheBust}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -342,7 +342,7 @@ async function login() {
     console.log('Attempting login for:', username);
 
     try {
-        const response = await fetch('https://planteraweb-production.up.railway.app/login', {
+        const response = await fetch('https://plantera-production.up.railway.app/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -413,7 +413,7 @@ async function register() {
 
     try {
         console.log('Sending registration request...');
-        const response = await fetch('https://planteraweb-production.up.railway.app/register', {
+        const response = await fetch('https://plantera-production.up.railway.app/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -459,7 +459,7 @@ function showLoginForm() {
 }
 
 async function logout() {
-    await fetch('https://planteraweb-production.up.railway.app/logout', { method: 'POST', credentials: 'include' });
+    await fetch('https://plantera-production.up.railway.app/logout', { method: 'POST', credentials: 'include' });
     currentUser = null;
     updateUI();
 }
@@ -500,7 +500,7 @@ function updateUI() {
 async function checkSession() {
     try {
         console.log('Checking session...');
-        const response = await fetch('https://planteraweb-production.up.railway.app/user', { credentials: 'include' });
+        const response = await fetch('https://plantera-production.up.railway.app/user', { credentials: 'include' });
 
         if (!response.ok) {
             console.log('Session check failed:', response.status);
@@ -554,7 +554,7 @@ async function loadDashboard() {
     console.log('Loading dashboard for user:', currentUser.username);
 
     try {
-        const response = await fetch('https://planteraweb-production.up.railway.app/orders', { credentials: 'include' });
+        const response = await fetch('https://plantera-production.up.railway.app/orders', { credentials: 'include' });
 
         if (!response.ok) {
             console.error('Failed to fetch orders:', response.status);
@@ -656,7 +656,7 @@ function switchToBeranda() {
 async function testSession() {
     try {
         console.log('Testing session...');
-        const response = await fetch('https://planteraweb-production.up.railway.app/test-session', {
+        const response = await fetch('https://plantera-production.up.railway.app/test-session', {
             credentials: 'include',
             headers: {
                 'Cache-Control': 'no-cache',
@@ -684,7 +684,7 @@ async function refreshSession() {
             console.log('Session invalid, attempting to re-authenticate...');
             // If we have stored credentials, try to login again
             if (currentUser && currentUser.username) {
-                const response = await fetch('https://planteraweb-production.up.railway.app/login', {
+                const response = await fetch('https://plantera-production.up.railway.app/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
@@ -723,7 +723,7 @@ async function loadAdminOrders() {
     }
 
     try {
-        const response = await fetch('https://planteraweb-production.up.railway.app/orders', {
+        const response = await fetch('https://plantera-production.up.railway.app/orders', {
             credentials: 'include',
             headers: {
                 'Cache-Control': 'no-cache',
@@ -832,7 +832,7 @@ function displayAdminOrders(orders) {
 
 async function updateOrderStatus(orderId, newStatus) {
     try {
-        const response = await fetch(`https://planteraweb-production.up.railway.app/orders/${orderId}`, {
+        const response = await fetch(`https://plantera-production.up.railway.app/orders/${orderId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -909,7 +909,7 @@ document.getElementById('order-form-element').addEventListener('submit', async f
         displayAvailableStock();
         // Send order to server
         try {
-            const response = await fetch('https://planteraweb-production.up.railway.app/order', {
+            const response = await fetch('https://plantera-production.up.railway.app/order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
