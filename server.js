@@ -23,7 +23,8 @@ app.use(cors({
             'http://127.0.0.1:8080',
             // Add production domains
             'https://planteraweb.vercel.app',
-            'https://plantera-web.vercel.app'
+            'https://plantera-web.vercel.app',
+            'https://plantera-gamma.vercel.app'
         ];
 
         if (!origin || allowedOrigins.includes(origin)) {
@@ -34,7 +35,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma']
 }));
 app.use(express.json());
 app.use(express.static(__dirname));
