@@ -1,15 +1,29 @@
 let batches = [];
 
+// Helper function to get auth headers
+function getAuthHeaders(additionalHeaders = {}) {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        console.error('Authentication required. Please login.');
+        throw new Error('Authentication required. Please login.');
+    }
+    return {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...additionalHeaders
+    };
+}
+
 async function loadBatches() {
     try {
         // Add cache-busting parameter to prevent browser caching issues
         const cacheBust = Date.now();
         const response = await fetch(`https://plantera-production.up.railway.app/batches?_t=${cacheBust}`, {
-            credentials: 'include',
-            headers: {
+            method: 'GET',
+            headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache'
-            }
+            })
         });
 
         if (!response.ok) {
@@ -36,22 +50,21 @@ async function saveBatches() {
         const cacheBust = Date.now();
         const response = await fetch(`https://plantera-production.up.railway.app/batches?_t=${cacheBust}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
+            headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache'
-            },
-            credentials: 'include',
+            }),
             body: JSON.stringify(batches)
         });
 
-        if (response.status === 403) {
-            console.log('403 error, attempting session refresh...');
-            const refreshed = await refreshSession();
-            if (refreshed) {
-                // Retry the save operation after session refresh
-                return saveBatches();
-            }
+        if (response.status === 401) {
+            console.log('401 error, token might be expired...');
+            localStorage.removeItem('token');
+            alert('Session expired. Please login again.');
+            // Redirect to login
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('nav-tabs').style.display = 'none';
+            return;
         }
 
         if (response.ok) {
@@ -65,8 +78,14 @@ async function saveBatches() {
             alert('Gagal menyimpan data batch. Silakan coba lagi.');
         }
     } catch (error) {
-        console.error('Error saving batches:', error);
-        alert('Error saat menyimpan batch. Periksa koneksi internet Anda.');
+        if (error.message === 'Authentication required. Please login.') {
+            alert('Authentication required. Please login.');
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('nav-tabs').style.display = 'none';
+        } else {
+            console.error('Error saving batches:', error);
+            alert('Error saat menyimpan batch. Periksa koneksi internet Anda.');
+        }
     }
 }
 
@@ -370,6 +389,10 @@ async function login() {
 
         if (result.success) {
             currentUser = { username, role: result.role };
+            // Store token in localStorage if provided by server
+            if (result.token) {
+                localStorage.setItem('token', result.token);
+            }
             console.log('User logged in:', currentUser);
 
             // Add a small delay to ensure session is established
@@ -464,7 +487,16 @@ function showLoginForm() {
 }
 
 async function logout() {
-    await fetch('https://plantera-production.up.railway.app/logout', { method: 'POST', credentials: 'include' });
+    try {
+        await fetch('https://plantera-production.up.railway.app/logout', {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+    } catch (error) {
+        console.error('Logout error:', error);
+    }
+    // Clear token and user data
+    localStorage.removeItem('token');
     currentUser = null;
     updateUI();
 }
@@ -511,7 +543,10 @@ function updateUI() {
 async function checkSession() {
     try {
         console.log('Checking session...');
-        const response = await fetch('https://plantera-production.up.railway.app/user', { credentials: 'include' });
+        const response = await fetch('https://plantera-production.up.railway.app/user', {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
 
         if (!response.ok) {
             console.log('Session check failed:', response.status);
@@ -526,8 +561,13 @@ async function checkSession() {
         displayBatches();
         displayAvailableStock();
     } catch (error) {
-        console.error('Session check error:', error);
-        currentUser = null;
+        if (error.message === 'Authentication required. Please login.') {
+            console.log('No token found, user needs to login');
+            currentUser = null;
+        } else {
+            console.error('Session check error:', error);
+            currentUser = null;
+        }
         updateUI();
         // Load data even if session fails
         await loadBatches();
@@ -565,7 +605,10 @@ async function loadDashboard() {
     console.log('Loading dashboard for user:', currentUser.username);
 
     try {
-        const response = await fetch('https://plantera-production.up.railway.app/orders', { credentials: 'include' });
+        const response = await fetch('https://plantera-production.up.railway.app/orders', {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
 
         if (!response.ok) {
             console.error('Failed to fetch orders:', response.status);
@@ -578,7 +621,11 @@ async function loadDashboard() {
         displayOrderStats(orders);
         displayOrderHistory(orders);
     } catch (error) {
-        console.error('Error loading dashboard:', error);
+        if (error.message === 'Authentication required. Please login.') {
+            console.error('Authentication required for dashboard');
+        } else {
+            console.error('Error loading dashboard:', error);
+        }
     }
 }
 
@@ -668,17 +715,21 @@ async function testSession() {
     try {
         console.log('Testing session...');
         const response = await fetch('https://plantera-production.up.railway.app/test-session', {
-            credentials: 'include',
-            headers: {
+            method: 'GET',
+            headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache'
-            }
+            })
         });
         const result = await response.json();
         console.log('Session test result:', result);
         return result;
     } catch (error) {
-        console.error('Session test error:', error);
+        if (error.message === 'Authentication required. Please login.') {
+            console.error('Authentication required for session test');
+        } else {
+            console.error('Session test error:', error);
+        }
         return null;
     }
 }
@@ -698,8 +749,6 @@ async function refreshSession() {
                 const response = await fetch('https://plantera-production.up.railway.app/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    mode: 'cors',
                     body: JSON.stringify({
                         username: currentUser.username,
                         password: 'wongirengjembuten69' // This is a fallback, ideally we'd store this securely
@@ -711,6 +760,10 @@ async function refreshSession() {
                     if (result.success) {
                         console.log('Session refreshed successfully');
                         currentUser = { username: currentUser.username, role: result.role };
+                        // Store new token if provided
+                        if (result.token) {
+                            localStorage.setItem('token', result.token);
+                        }
                         updateUI();
                         return true;
                     }
@@ -750,20 +803,20 @@ async function loadAdminOrders() {
 
     try {
         const response = await fetch('https://plantera-production.up.railway.app/orders', {
-            credentials: 'include',
-            headers: {
+            method: 'GET',
+            headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache'
-            }
+            })
         });
 
         if (response.status === 401) {
-            console.log('401 error, attempting session refresh...');
-            const refreshed = await refreshSession();
-            if (refreshed) {
-                // Don't retry immediately, let the cooldown handle it
-                console.log('Session refreshed, will retry on next call');
-            }
+            console.log('401 error, token might be expired...');
+            localStorage.removeItem('token');
+            alert('Session expired. Please login again.');
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('nav-tabs').style.display = 'none';
+            return;
         }
 
         if (!response.ok) {
@@ -778,7 +831,14 @@ async function loadAdminOrders() {
         const ordersArray = Array.isArray(orders) ? orders : [];
         displayAdminOrders(ordersArray);
     } catch (error) {
-        console.error('Error loading admin orders:', error);
+        if (error.message === 'Authentication required. Please login.') {
+            console.error('Authentication required for admin orders');
+            alert('Authentication required. Please login.');
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('nav-tabs').style.display = 'none';
+        } else {
+            console.error('Error loading admin orders:', error);
+        }
     } finally {
         isLoadingAdminOrders = false;
     }
@@ -862,10 +922,18 @@ async function updateOrderStatus(orderId, newStatus) {
     try {
         const response = await fetch(`https://plantera-production.up.railway.app/orders/${orderId}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
+            headers: getAuthHeaders(),
             body: JSON.stringify({ status: newStatus })
         });
+
+        if (response.status === 401) {
+            console.log('401 error, token might be expired...');
+            localStorage.removeItem('token');
+            alert('Session expired. Please login again.');
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('nav-tabs').style.display = 'none';
+            return;
+        }
 
         if (response.ok) {
             showNotification(`Status pesanan #${orderId} berhasil diupdate ke ${newStatus}`);
@@ -879,8 +947,14 @@ async function updateOrderStatus(orderId, newStatus) {
             alert('Gagal update status: ' + error.error);
         }
     } catch (error) {
-        console.error('Error updating order status:', error);
-        alert('Error saat update status pesanan');
+        if (error.message === 'Authentication required. Please login.') {
+            alert('Authentication required. Please login.');
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('nav-tabs').style.display = 'none';
+        } else {
+            console.error('Error updating order status:', error);
+            alert('Error saat update status pesanan');
+        }
     }
 }
 
@@ -946,10 +1020,20 @@ document.getElementById('order-form-element').addEventListener('submit', async f
         try {
             const response = await fetch('https://plantera-production.up.railway.app/order', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ batchId, quantity, phone, address, delivery, payment })
             });
+
+            if (response.status === 401) {
+                loading.style.display = 'none';
+                console.log('401 error, token might be expired...');
+                localStorage.removeItem('token');
+                alert('Session expired. Please login again.');
+                document.getElementById('login-section').style.display = 'block';
+                document.getElementById('nav-tabs').style.display = 'none';
+                return;
+            }
+
             const result = await response.json();
 
             if (result.success) {
@@ -970,9 +1054,15 @@ document.getElementById('order-form-element').addEventListener('submit', async f
                 alert('Gagal menyimpan pesanan. Silakan coba lagi.');
             }
         } catch (error) {
-            console.error('Order submission error:', error);
             loading.style.display = 'none';
-            alert('Terjadi kesalahan saat mengirim pesanan.');
+            if (error.message === 'Authentication required. Please login.') {
+                alert('Authentication required. Please login.');
+                document.getElementById('login-section').style.display = 'block';
+                document.getElementById('nav-tabs').style.display = 'none';
+            } else {
+                console.error('Order submission error:', error);
+                alert('Terjadi kesalahan saat mengirim pesanan.');
+            }
         }
     } else {
         loading.style.display = 'none';
