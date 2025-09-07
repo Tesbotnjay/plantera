@@ -42,14 +42,14 @@ app.use(express.static(__dirname));
 
 // Enhanced session configuration
 app.use(session({
-    secret: 'plantera-secret-key-2024',
+    secret: process.env.SESSION_SECRET || 'plantera-secret-key-2024',
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: true, // HTTPS required for production
+        secure: process.env.NODE_ENV === 'production', // HTTPS required for production
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: 'none' // Allow cross-origin cookies
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // Allow cross-origin in production
     },
     name: 'plantera.sid'
 }));
