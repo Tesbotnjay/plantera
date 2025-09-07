@@ -379,20 +379,47 @@ app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
     console.log('Updating order', orderId, 'to status:', status);
 
     try {
-        const result = await pool.query(
-            'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-            [status, orderId]
-        );
+        const dbConnected = await testDatabaseConnection();
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Order not found' });
+        if (dbConnected) {
+            const result = await pool.query(
+                'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+                [status, orderId]
+            );
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Order not found' });
+            }
+
+            console.log('Order', orderId, 'updated successfully to', status);
+            res.json({ success: true, order: result.rows[0] });
+        } else {
+            console.log('Database not available, updating order in file system');
+
+            // Update in file system
+            try {
+                const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+                const orderIndex = ordersData.findIndex(order => order.id === orderId);
+
+                if (orderIndex === -1) {
+                    return res.status(404).json({ error: 'Order not found' });
+                }
+
+                ordersData[orderIndex].status = status;
+                ordersData[orderIndex].lastUpdated = new Date().toISOString();
+
+                fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
+
+                console.log('Order', orderId, 'updated in file system to', status);
+                res.json({ success: true, order: ordersData[orderIndex] });
+            } catch (fileError) {
+                console.error('Error updating order in file system:', fileError);
+                res.status(500).json({ error: 'Failed to update order' });
+            }
         }
-
-        console.log('Order', orderId, 'updated successfully to', status);
-        res.json({ success: true, order: result.rows[0] });
     } catch (error) {
-        console.error('Database error updating order:', error);
-        res.status(500).json({ error: 'Database error' });
+        console.error('Error updating order:', error);
+        res.status(500).json({ error: 'Failed to update order' });
     }
 });
 
@@ -466,22 +493,46 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
     });
 
     try {
-        // Clear existing batches
-        await pool.query('DELETE FROM batches');
+        // Try to save to database first
+        const dbConnected = await testDatabaseConnection();
+        if (dbConnected) {
+            // Clear existing batches
+            await pool.query('DELETE FROM batches');
 
-        // Insert new batches
-        for (const batch of batches) {
-            await pool.query(
-                'INSERT INTO batches (id, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5)',
-                [batch.id, batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
-            );
+            // Insert new batches
+            for (const batch of batches) {
+                await pool.query(
+                    'INSERT INTO batches (id, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5)',
+                    [batch.id, batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
+                );
+            }
+
+            console.log('Data saved successfully to database');
+        } else {
+            console.log('Database not available, saving to file system');
         }
 
-        console.log('Data saved successfully to database');
+        // Always save to file system as backup
+        try {
+            fs.writeFileSync(DATA_FILE, JSON.stringify(batches, null, 2));
+            console.log('Data saved to file system backup');
+        } catch (fileError) {
+            console.error('Error saving to file system:', fileError);
+        }
+
         res.json({ success: true, message: 'Data saved successfully', count: batches.length });
     } catch (error) {
         console.error('Database error saving batches:', error);
-        res.status(500).json({ error: 'Database error' });
+
+        // Fallback: try to save to file system only
+        try {
+            fs.writeFileSync(DATA_FILE, JSON.stringify(batches, null, 2));
+            console.log('Data saved to file system as fallback');
+            res.json({ success: true, message: 'Data saved to file system', count: batches.length });
+        } catch (fileError) {
+            console.error('Error saving to file system:', fileError);
+            res.status(500).json({ error: 'Failed to save data' });
+        }
     }
 });
 
@@ -510,19 +561,45 @@ app.post('/order', verifyToken, async (req, res) => {
     console.log('Created order object:', order);
 
     try {
-        // Insert order into database
-        await pool.query(
-            'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-            [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
-        );
+        const dbConnected = await testDatabaseConnection();
 
-        // Update batch stock
-        await pool.query(
-            'UPDATE batches SET stock = stock - $1 WHERE id = $2',
-            [order.quantity, order.batchId]
-        );
+        if (dbConnected) {
+            // Insert order into database
+            await pool.query(
+                'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+                [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
+            );
 
-        console.log('Order saved successfully for user:', order.userId);
+            // Update batch stock
+            await pool.query(
+                'UPDATE batches SET stock = stock - $1 WHERE id = $2',
+                [order.quantity, order.batchId]
+            );
+
+            console.log('Order saved successfully to database for user:', order.userId);
+        } else {
+            console.log('Database not available, saving order to file system');
+
+            // Save to file system
+            try {
+                const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+                ordersData.push(order);
+                fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
+
+                // Update batch stock in file system
+                const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+                const batch = batchesData.find(b => b.id === order.batchId);
+                if (batch) {
+                    batch.stock -= order.quantity;
+                    fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
+                }
+
+                console.log('Order saved to file system for user:', order.userId);
+            } catch (fileError) {
+                console.error('Error saving order to file system:', fileError);
+                return res.status(500).json({ success: false, error: 'Failed to save order' });
+            }
+        }
 
         // Send to Telegram
         const message = `Pesanan Baru #${order.id}:\nUser: ${order.userId}\nBatch: ${batchId}\nJumlah: ${quantity}\nTelepon: ${phone}\nAlamat: ${address}\nPengiriman: ${delivery}\nPembayaran: ${payment}\nTotal: Rp ${order.totalPrice.toLocaleString('id-ID')}`;
@@ -530,8 +607,8 @@ app.post('/order', verifyToken, async (req, res) => {
 
         res.json({ success: true, orderId: order.id });
     } catch (error) {
-        console.error('Database error saving order:', error);
-        res.status(500).json({ success: false, error: 'Database error' });
+        console.error('Error saving order:', error);
+        res.status(500).json({ success: false, error: 'Failed to save order' });
     }
 });
 
