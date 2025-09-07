@@ -4,9 +4,91 @@ const path = require('path');
 const cors = require('cors');
 const session = require('express-session');
 const https = require('https');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Test database connection
+pool.on('connect', () => {
+  console.log('Connected to PostgreSQL database');
+});
+
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+  process.exit(-1);
+});
+
+// Initialize database tables
+async function initializeDatabase() {
+  try {
+    // Create users table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        username VARCHAR(50) PRIMARY KEY,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(20) NOT NULL DEFAULT 'customer',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create batches table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS batches (
+        id SERIAL PRIMARY KEY,
+        plant_date DATE NOT NULL,
+        quantity INTEGER NOT NULL,
+        stock INTEGER NOT NULL,
+        ready_for_sale BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create orders table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id VARCHAR(50) PRIMARY KEY,
+        user_id VARCHAR(50) NOT NULL,
+        batch_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        phone VARCHAR(20),
+        address TEXT,
+        delivery VARCHAR(20),
+        payment VARCHAR(50),
+        status VARCHAR(20) DEFAULT 'pending',
+        order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        total_price INTEGER NOT NULL,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Insert default admin user if not exists
+    await pool.query(`
+      INSERT INTO users (username, password, role)
+      VALUES ('sulvianti', 'wongirengjembuten69', 'admin')
+      ON CONFLICT (username) DO NOTHING
+    `);
+
+    // Insert default customer user if not exists
+    await pool.query(`
+      INSERT INTO users (username, password, role)
+      VALUES ('customer', 'customer123', 'customer')
+      ON CONFLICT (username) DO NOTHING
+    `);
+
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Error initializing database:', error);
+  }
+}
+
+// For backward compatibility, keep file paths (but won't be used)
 const DATA_FILE = path.join(__dirname, 'batches.json');
 const USERS_FILE = path.join(__dirname, 'users.json');
 const ORDERS_FILE = path.join(__dirname, 'orders.json');
@@ -69,21 +151,19 @@ if (!fs.existsSync(ORDERS_FILE)) {
 }
 
 // Login
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
     const { username, password } = req.body;
     console.log('Login attempt:', username);
     console.log('Session ID:', req.sessionID);
 
-    fs.readFile(USERS_FILE, 'utf8', (err, data) => {
-        if (err) {
-            console.error('Error reading users file:', err);
-            return res.status(500).send('Error');
-        }
+    try {
+        const result = await pool.query(
+            'SELECT username, password, role FROM users WHERE username = $1 AND password = $2',
+            [username, password]
+        );
 
-        const users = JSON.parse(data);
-        const user = users.find(u => u.username === username && u.password === password);
-
-        if (user) {
+        if (result.rows.length > 0) {
+            const user = result.rows[0];
             req.session.user = {
                 username: user.username,
                 role: user.role
@@ -95,7 +175,10 @@ app.post('/login', (req, res) => {
             console.log('Login failed: Invalid credentials');
             res.json({ success: false });
         }
-    });
+    } catch (error) {
+        console.error('Database error during login:', error);
+        res.status(500).json({ success: false, error: 'Database error' });
+    }
 });
 
 // Logout
@@ -105,37 +188,41 @@ app.post('/logout', (req, res) => {
 });
 
 // Register new user
-app.post('/register', (req, res) => {
+app.post('/register', async (req, res) => {
     const { username, password, role = 'customer' } = req.body;
 
     if (!username || !password) {
         return res.json({ success: false, message: 'Username dan password diperlukan' });
     }
 
-    fs.readFile(USERS_FILE, 'utf8', (err, data) => {
-        if (err) return res.status(500).send('Error reading users file');
+    try {
+        // Check if user already exists
+        const existingUser = await pool.query(
+            'SELECT username FROM users WHERE username = $1',
+            [username]
+        );
 
-        const users = JSON.parse(data);
-        const existingUser = users.find(u => u.username === username);
-
-        if (existingUser) {
+        if (existingUser.rows.length > 0) {
             return res.json({ success: false, message: 'Username sudah digunakan' });
         }
 
-        const newUser = { username, password, role };
-        users.push(newUser);
+        // Insert new user
+        await pool.query(
+            'INSERT INTO users (username, password, role) VALUES ($1, $2, $3)',
+            [username, password, role]
+        );
 
-        fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2), (err) => {
-            if (err) {
-                console.error('Error saving user:', err);
-                return res.status(500).send('Error saving user');
-            }
-
-            // Auto login after registration
-            req.session.user = { username: newUser.username, role: newUser.role };
-            res.json({ success: true, message: 'Registrasi berhasil', user: { username: newUser.username, role: newUser.role } });
+        // Auto login after registration
+        req.session.user = { username, role };
+        res.json({
+            success: true,
+            message: 'Registrasi berhasil',
+            user: { username, role }
         });
-    });
+    } catch (error) {
+        console.error('Database error during registration:', error);
+        res.status(500).json({ success: false, message: 'Database error' });
+    }
 });
 
 // Get user
@@ -156,7 +243,7 @@ app.get('/test-session', (req, res) => {
 });
 
 // Get user orders
-app.get('/orders', (req, res) => {
+app.get('/orders', async (req, res) => {
     // Add cache control headers
     res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -175,71 +262,51 @@ app.get('/orders', (req, res) => {
 
     console.log('Orders request for user:', req.session.user.username, 'role:', req.session.user.role);
 
-    fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-        if (err) {
-            console.error('Error reading orders file:', err);
-            return res.status(500).json({ error: 'Error reading orders' });
-        }
-
-        let orders;
-        try {
-            orders = JSON.parse(data);
-            // Ensure orders is always an array
-            if (!Array.isArray(orders)) {
-                orders = [];
-            }
-        } catch (parseError) {
-            console.error('Error parsing orders JSON:', parseError);
-            orders = [];
-        }
-
-        // If admin, return all orders; if customer, return only their orders
-        let userOrders;
+    try {
+        let result;
         if (req.session.user.role === 'admin') {
-            userOrders = orders;
-            console.log('Admin requesting all orders:', orders.length);
+            result = await pool.query(
+                'SELECT * FROM orders ORDER BY order_date DESC'
+            );
+            console.log('Admin requesting all orders:', result.rows.length);
         } else {
-            userOrders = orders.filter(order => order.userId === req.session.user.username);
-            console.log('Orders for user', req.session.user.username + ':', userOrders.length);
+            result = await pool.query(
+                'SELECT * FROM orders WHERE user_id = $1 ORDER BY order_date DESC',
+                [req.session.user.username]
+            );
+            console.log('Orders for user', req.session.user.username + ':', result.rows.length);
         }
 
-        res.json(userOrders);
-    });
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Database error fetching orders:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
 // Update order status (admin only)
-app.put('/orders/:orderId', requireAdmin, (req, res) => {
+app.put('/orders/:orderId', requireAdmin, async (req, res) => {
     const { orderId } = req.params;
     const { status } = req.body;
 
     console.log('Updating order', orderId, 'to status:', status);
 
-    fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-        if (err) {
-            console.error('Error reading orders file:', err);
-            return res.status(500).json({ error: 'Error reading orders' });
-        }
+    try {
+        const result = await pool.query(
+            'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+            [status, orderId]
+        );
 
-        const orders = JSON.parse(data);
-        const orderIndex = orders.findIndex(order => order.id === orderId);
-
-        if (orderIndex === -1) {
+        if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Order not found' });
         }
 
-        orders[orderIndex].status = status;
-        orders[orderIndex].lastUpdated = new Date().toISOString();
-
-        fs.writeFile(ORDERS_FILE, JSON.stringify(orders, null, 2), (err) => {
-            if (err) {
-                console.error('Error updating order:', err);
-                return res.status(500).json({ error: 'Error updating order' });
-            }
-
-            console.log('Order', orderId, 'updated successfully to', status);
-            res.json({ success: true, order: orders[orderIndex] });
-        });
-    });
+        console.log('Order', orderId, 'updated successfully to', status);
+        res.json({ success: true, order: result.rows[0] });
+    } catch (error) {
+        console.error('Database error updating order:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
 // Middleware to check admin role
@@ -262,7 +329,7 @@ function requireAdmin(req, res, next) {
 }
 
 // Get batches (public)
-app.get('/batches', (req, res) => {
+app.get('/batches', async (req, res) => {
     // Add cache control headers to prevent browser caching
     res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -270,20 +337,21 @@ app.get('/batches', (req, res) => {
         'Expires': '0'
     });
 
-    fs.readFile(DATA_FILE, 'utf8', (err, data) => {
-        if (err) {
-            console.error('Error reading batches file:', err);
-            return res.status(500).send('Error reading data');
-        }
+    try {
+        const result = await pool.query(
+            'SELECT id, plant_date, quantity, stock, ready_for_sale FROM batches ORDER BY id'
+        );
 
-        const batches = JSON.parse(data);
-        console.log('Serving batches to client:', batches.length, 'batches');
-        res.json(batches);
-    });
+        console.log('Serving batches to client:', result.rows.length, 'batches');
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Database error fetching batches:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
 // Save batches (admin only)
-app.post('/batches', requireAdmin, (req, res) => {
+app.post('/batches', requireAdmin, async (req, res) => {
     const batches = req.body;
     console.log('Saving batches:', batches.length, 'batches');
 
@@ -294,18 +362,28 @@ app.post('/batches', requireAdmin, (req, res) => {
         'Expires': '0'
     });
 
-    fs.writeFile(DATA_FILE, JSON.stringify(batches, null, 2), (err) => {
-        if (err) {
-            console.error('Error saving data:', err);
-            return res.status(500).send('Error saving data');
+    try {
+        // Clear existing batches
+        await pool.query('DELETE FROM batches');
+
+        // Insert new batches
+        for (const batch of batches) {
+            await pool.query(
+                'INSERT INTO batches (id, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5)',
+                [batch.id, batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
+            );
         }
-        console.log('Data saved successfully to', DATA_FILE);
+
+        console.log('Data saved successfully to database');
         res.json({ success: true, message: 'Data saved successfully', count: batches.length });
-    });
+    } catch (error) {
+        console.error('Database error saving batches:', error);
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
 // Submit order
-app.post('/order', (req, res) => {
+app.post('/order', async (req, res) => {
     const { batchId, quantity, phone, address, delivery, payment } = req.body;
     const user = req.session.user;
 
@@ -328,33 +406,30 @@ app.post('/order', (req, res) => {
 
     console.log('Created order object:', order);
 
-    // Save order to file
-    fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-        if (err) {
-            console.error('Error reading orders file:', err);
-            return res.status(500).send('Error saving order');
-        }
+    try {
+        // Insert order into database
+        await pool.query(
+            'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+            [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
+        );
 
-        const orders = JSON.parse(data);
-        orders.push(order);
+        // Update batch stock
+        await pool.query(
+            'UPDATE batches SET stock = stock - $1 WHERE id = $2',
+            [order.quantity, order.batchId]
+        );
 
-        console.log('Saving order to file. Total orders now:', orders.length);
+        console.log('Order saved successfully for user:', order.userId);
 
-        fs.writeFile(ORDERS_FILE, JSON.stringify(orders, null, 2), (err) => {
-            if (err) {
-                console.error('Error saving order:', err);
-                return res.status(500).send('Error saving order');
-            }
+        // Send to Telegram
+        const message = `Pesanan Baru #${order.id}:\nUser: ${order.userId}\nBatch: ${batchId}\nJumlah: ${quantity}\nTelepon: ${phone}\nAlamat: ${address}\nPengiriman: ${delivery}\nPembayaran: ${payment}\nTotal: Rp ${order.totalPrice.toLocaleString('id-ID')}`;
+        sendToTelegram(message);
 
-            console.log('Order saved successfully for user:', order.userId);
-
-            // Send to Telegram
-            const message = `Pesanan Baru #${order.id}:\nUser: ${order.userId}\nBatch: ${batchId}\nJumlah: ${quantity}\nTelepon: ${phone}\nAlamat: ${address}\nPengiriman: ${delivery}\nPembayaran: ${payment}\nTotal: Rp ${order.totalPrice.toLocaleString('id-ID')}`;
-            sendToTelegram(message);
-
-            res.json({ success: true, orderId: order.id });
-        });
-    });
+        res.json({ success: true, orderId: order.id });
+    } catch (error) {
+        console.error('Database error saving order:', error);
+        res.status(500).json({ success: false, error: 'Database error' });
+    }
 });
 
 function sendToTelegram(message) {
@@ -407,7 +482,14 @@ app.get('/status', (req, res) => {
     });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// Initialize database and start server
+async function startServer() {
+  await initializeDatabase();
+
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Health check available at http://localhost:${PORT}/health`);
-});
+  });
+}
+
+startServer().catch(console.error);
