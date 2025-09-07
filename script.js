@@ -1,12 +1,23 @@
 let batches = [];
 
+// Helper function to check if user is authenticated
+function isAuthenticated() {
+    const token = localStorage.getItem('token');
+    return !!(token && currentUser);
+}
+
 // Helper function to get auth headers
 function getAuthHeaders(additionalHeaders = {}) {
     const token = localStorage.getItem('token');
+
     if (!token) {
         console.error('Authentication required. Please login.');
+        // Show login section if not already shown
+        document.getElementById('login-section').style.display = 'block';
+        document.getElementById('nav-tabs').style.display = 'none';
         throw new Error('Authentication required. Please login.');
     }
+
     return {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -15,6 +26,12 @@ function getAuthHeaders(additionalHeaders = {}) {
 }
 
 async function loadBatches() {
+    // Check if user is authenticated before making API call
+    if (!isAuthenticated()) {
+        console.log('User not authenticated, skipping loadBatches');
+        return;
+    }
+
     try {
         // Add cache-busting parameter to prevent browser caching issues
         const cacheBust = Date.now();
@@ -387,20 +404,28 @@ async function login() {
 
         if (result.success) {
             currentUser = { username, role: result.role };
-            // Store token in localStorage if provided by server
+
+            // Store token in localStorage
             if (result.token) {
                 localStorage.setItem('token', result.token);
+                console.log('Login successful for:', username);
+
+                updateUI();
+
+                // Load data after login
+                try {
+                    await loadBatches();
+                    displayBatches();
+                    displayAvailableStock();
+                    showNotification(`Selamat datang, ${username}!`);
+                } catch (error) {
+                    console.error('Error loading data after login:', error);
+                    showNotification(`Selamat datang, ${username}!`);
+                }
+            } else {
+                console.error('No token received from server');
+                alert('Login gagal! Token tidak diterima dari server.');
             }
-            console.log('User logged in:', currentUser);
-
-            // Add a small delay to ensure session is established
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            updateUI();
-            await loadBatches();
-            displayBatches();
-            displayAvailableStock();
-            showNotification(`Selamat datang, ${username}!`);
         } else {
             alert('Login gagal! Periksa username dan password Anda.');
         }
@@ -538,6 +563,15 @@ function updateUI() {
     }
 }
 async function checkSession() {
+    // Check if there's a token before attempting to verify session
+    const token = localStorage.getItem('token');
+    if (!token) {
+        console.log('No token found, user needs to login');
+        currentUser = null;
+        updateUI();
+        return;
+    }
+
     try {
         console.log('Checking session...');
         const response = await fetch('https://plantera-production.up.railway.app/user', {
@@ -548,28 +582,32 @@ async function checkSession() {
         if (!response.ok) {
             console.log('Session check failed:', response.status);
             currentUser = null;
+            localStorage.removeItem('token'); // Clear invalid token
         } else {
             currentUser = await response.json();
             console.log('Session check successful, user:', currentUser);
         }
 
         updateUI();
-        await loadBatches();
-        displayBatches();
-        displayAvailableStock();
+
+        // Only load data if user is authenticated
+        if (currentUser) {
+            await loadBatches();
+            displayBatches();
+            displayAvailableStock();
+        }
     } catch (error) {
         if (error.message === 'Authentication required. Please login.') {
             console.log('No token found, user needs to login');
             currentUser = null;
+            localStorage.removeItem('token');
         } else {
             console.error('Session check error:', error);
             currentUser = null;
+            localStorage.removeItem('token');
         }
         updateUI();
-        // Load data even if session fails
-        await loadBatches();
-        displayBatches();
-        displayAvailableStock();
+        // Don't load data if authentication failed
     }
 }
 
@@ -594,8 +632,8 @@ function closeNotification() {
 
 // Dashboard functions
 async function loadDashboard() {
-    if (!currentUser) {
-        console.log('No current user, cannot load dashboard');
+    if (!isAuthenticated() || !currentUser) {
+        console.log('Not authenticated or no current user, cannot load dashboard');
         return;
     }
 
@@ -709,6 +747,11 @@ function switchToBeranda() {
 
 // Test session function for debugging
 async function testSession() {
+    if (!isAuthenticated()) {
+        console.log('Not authenticated, cannot test session');
+        return null;
+    }
+
     try {
         console.log('Testing session...');
         const response = await fetch('https://plantera-production.up.railway.app/test-session', {
@@ -733,6 +776,11 @@ async function testSession() {
 
 // Force session refresh
 async function refreshSession() {
+    if (!isAuthenticated() || !currentUser) {
+        console.log('Not authenticated, cannot refresh session');
+        return false;
+    }
+
     console.log('Forcing session refresh...');
     try {
         // Test current session
@@ -783,8 +831,8 @@ const ADMIN_ORDERS_COOLDOWN = 5000; // 5 seconds cooldown
 
 // Admin Order Management Functions
 async function loadAdminOrders() {
-    if (!currentUser || currentUser.role !== 'admin') {
-        console.log('Not admin or not logged in, skipping admin orders load');
+    if (!isAuthenticated() || !currentUser || currentUser.role !== 'admin') {
+        console.log('Not authenticated or not admin, skipping admin orders load');
         return;
     }
 

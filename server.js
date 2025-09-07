@@ -6,9 +6,11 @@ const session = require('express-session');
 const https = require('https');
 const { Pool } = require('pg');
 const PgSession = require('connect-pg-simple')(session);
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const JWT_SECRET = process.env.JWT_SECRET || 'plantera-jwt-secret-key-2024';
 
 // PostgreSQL connection
 const pool = new Pool({
@@ -249,41 +251,43 @@ if (!fs.existsSync(ORDERS_FILE)) {
     fs.writeFileSync(ORDERS_FILE, JSON.stringify([]));
 }
 
-// Login
+// JWT Token-based authentication
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
-    console.log('Login attempt:', username);
-    console.log('Session ID:', req.sessionID);
+    console.log('Login attempt for:', username);
 
     try {
-        const result = await pool.query(
-            'SELECT username, password, role FROM users WHERE username = $1 AND password = $2',
-            [username, password]
-        );
+        const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+        const user = usersData.find(u => u.username === username && u.password === password);
 
-        if (result.rows.length > 0) {
-            const user = result.rows[0];
-            req.session.user = {
-                username: user.username,
-                role: user.role
-            };
-            console.log('Login successful for:', user.username, 'role:', user.role);
-            console.log('Session user set:', req.session.user);
-            res.json({ success: true, role: user.role });
+        if (user) {
+            // Generate JWT token
+            const token = jwt.sign(
+                { username: user.username, role: user.role },
+                JWT_SECRET,
+                { expiresIn: '24h' }
+            );
+
+            console.log('Login successful, token generated for:', user.username);
+            res.json({
+                success: true,
+                role: user.role,
+                token: token
+            });
         } else {
             console.log('Login failed: Invalid credentials');
             res.json({ success: false });
         }
     } catch (error) {
-        console.error('Database error during login:', error);
-        res.status(500).json({ success: false, error: 'Database error' });
+        console.error('Login error:', error);
+        res.status(500).json({ success: false, error: 'Login failed' });
     }
 });
 
 // Logout
-app.post('/logout', (req, res) => {
-    req.session.destroy();
-    res.send('Logged out');
+app.post('/logout', verifyToken, (req, res) => {
+    console.log('User logged out:', req.user.username);
+    res.json({ success: true, message: 'Logged out successfully' });
 });
 
 // Register new user
@@ -325,24 +329,21 @@ app.post('/register', async (req, res) => {
 });
 
 // Get user
-app.get('/user', (req, res) => {
-    console.log('User check - Session ID:', req.sessionID);
-    console.log('User check - Session user:', req.session ? req.session.user : 'No session');
-    res.json(req.session.user || null);
+app.get('/user', verifyToken, (req, res) => {
+    console.log('User check - Token verified for:', req.user.username);
+    res.json(req.user);
 });
 
-// Test session endpoint
-app.get('/test-session', (req, res) => {
+// Test session endpoint (now tests token)
+app.get('/test-session', verifyToken, (req, res) => {
     res.json({
-        sessionID: req.sessionID,
-        hasSession: !!req.session,
-        user: req.session.user || null,
-        isAuthenticated: !!(req.session && req.session.user)
+        user: req.user,
+        isAuthenticated: true
     });
 });
 
-// Get user orders
-app.get('/orders', async (req, res) => {
+// Get user orders (simple file-based)
+app.get('/orders', verifyToken, async (req, res) => {
     // Add cache control headers
     res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -350,41 +351,28 @@ app.get('/orders', async (req, res) => {
         'Expires': '0'
     });
 
-    console.log('Orders request - Session ID:', req.sessionID);
-    console.log('Orders request - Session exists:', !!req.session);
-    console.log('Orders request - Session user:', req.session ? req.session.user : 'No session');
-
-    if (!req.session || !req.session.user) {
-        console.log('Orders request: No authenticated user');
-        return res.status(401).json({ error: 'Not authenticated' });
-    }
-
-    console.log('Orders request for user:', req.session.user.username, 'role:', req.session.user.role);
+    console.log('Orders request for user:', req.user.username, 'role:', req.user.role);
 
     try {
-        let result;
-        if (req.session.user.role === 'admin') {
-            result = await pool.query(
-                'SELECT * FROM orders ORDER BY order_date DESC'
-            );
-            console.log('Admin requesting all orders:', result.rows.length);
-        } else {
-            result = await pool.query(
-                'SELECT * FROM orders WHERE user_id = $1 ORDER BY order_date DESC',
-                [req.session.user.username]
-            );
-            console.log('Orders for user', req.session.user.username + ':', result.rows.length);
-        }
+        const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
 
-        res.json(result.rows);
+        if (req.user.role === 'admin') {
+            console.log('Admin requesting all orders:', ordersData.length);
+            res.json(ordersData);
+        } else {
+            // Filter orders for the specific user
+            const userOrders = ordersData.filter(order => order.userId === req.user.username);
+            console.log('Orders for user', req.user.username + ':', userOrders.length);
+            res.json(userOrders);
+        }
     } catch (error) {
-        console.error('Database error fetching orders:', error);
-        res.status(500).json({ error: 'Database error' });
+        console.error('Orders error:', error);
+        res.status(500).json({ error: 'Unable to fetch orders data' });
     }
 });
 
 // Update order status (admin only)
-app.put('/orders/:orderId', requireAdmin, async (req, res) => {
+app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
     const { orderId } = req.params;
     const { status } = req.body;
 
@@ -408,26 +396,45 @@ app.put('/orders/:orderId', requireAdmin, async (req, res) => {
     }
 });
 
-// Middleware to check admin role
-function requireAdmin(req, res, next) {
-    console.log('Admin check - Session ID:', req.sessionID);
-    console.log('Admin check - Session user:', req.session.user);
+// Middleware to verify JWT token
+function verifyToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-    if (!req.session || !req.session.user) {
-        console.log('Admin access denied: No session or user');
+    if (!token) {
+        console.log('Token verification failed: No token provided');
         return res.status(401).json({ error: 'Authentication required.' });
     }
 
-    if (req.session.user.role !== 'admin') {
-        console.log('Admin access denied: User role is', req.session.user.role);
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            console.log('Token verification failed:', err.message);
+            return res.status(403).json({ error: 'Invalid or expired token.' });
+        }
+
+        req.user = decoded;
+        console.log('Token verified for user:', decoded.username);
+        next();
+    });
+}
+
+// Middleware to check admin role (updated to use token)
+function requireAdmin(req, res, next) {
+    if (!req.user) {
+        console.log('Admin access denied: No user in request');
+        return res.status(401).json({ error: 'Authentication required.' });
+    }
+
+    if (req.user.role !== 'admin') {
+        console.log('Admin access denied: User role is', req.user.role);
         return res.status(403).json({ error: 'Access denied. Admin role required.' });
     }
 
-    console.log('Admin access granted for user:', req.session.user.username);
+    console.log('Admin access granted for user:', req.user.username);
     next();
 }
 
-// Get batches (public)
+// Get batches (simple file-based)
 app.get('/batches', async (req, res) => {
     // Add cache control headers to prevent browser caching
     res.set({
@@ -437,20 +444,17 @@ app.get('/batches', async (req, res) => {
     });
 
     try {
-        const result = await pool.query(
-            'SELECT id, plant_date, quantity, stock, ready_for_sale FROM batches ORDER BY id'
-        );
-
-        console.log('Serving batches to client:', result.rows.length, 'batches');
-        res.json(result.rows);
+        const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        console.log('Serving batches to client:', batchesData.length, 'batches');
+        res.json(batchesData);
     } catch (error) {
-        console.error('Database error fetching batches:', error);
-        res.status(500).json({ error: 'Database error' });
+        console.error('Batches error:', error);
+        res.status(500).json({ error: 'Unable to fetch batches data' });
     }
 });
 
 // Save batches (admin only)
-app.post('/batches', requireAdmin, async (req, res) => {
+app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
     const batches = req.body;
     console.log('Saving batches:', batches.length, 'batches');
 
@@ -482,9 +486,9 @@ app.post('/batches', requireAdmin, async (req, res) => {
 });
 
 // Submit order
-app.post('/order', async (req, res) => {
+app.post('/order', verifyToken, async (req, res) => {
     const { batchId, quantity, phone, address, delivery, payment } = req.body;
-    const user = req.session.user;
+    const user = req.user;
 
     console.log('Order submission:', { user: user ? user.username : 'guest', batchId, quantity });
 
