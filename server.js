@@ -587,7 +587,7 @@ app.get('/batches', async (req, res) => {
         const orderDbConnected = await testDatabaseConnection();
         console.log('🗄️ Database connection status:', orderDbConnected);
 
-        if (!dbConnected) {
+        if (!orderDbConnected) {
             console.log('❌ Database not connected');
             return res.status(503).json({
                 error: 'Database not available',
@@ -774,11 +774,9 @@ app.post('/order', async (req, res) => {
     console.log('Created order object:', order);
 
     try {
-        const dbConnected = await testDatabaseConnection();
-
         // Check database connection
-        const dbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', dbConnected);
+        const orderDbConnected = await testDatabaseConnection();
+        console.log('🗄️ Database connection status:', orderDbConnected);
 
         if (!orderDbConnected) {
             console.log('❌ Database not connected');
