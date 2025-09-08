@@ -1,7 +1,7 @@
 let batches = [];
 
-// API base URL - use current domain with /api prefix for Vercel serverless functions
-const API_BASE_URL = window.location.origin + '/api';
+// API base URL - use current domain instead of hardcoded Railway URL
+const API_BASE_URL = window.location.origin;
 
 // Helper function to check if user is authenticated
 function isAuthenticated() {
