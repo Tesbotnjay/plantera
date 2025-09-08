@@ -1,6 +1,4 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const cors = require('cors');
 const session = require('express-session');
 const https = require('https');
@@ -191,10 +189,7 @@ async function initializeDatabase() {
   }
 }
 
-// For backward compatibility, keep file paths (but won't be used)
-const DATA_FILE = path.join(__dirname, 'batches.json');
-const USERS_FILE = path.join(__dirname, 'users.json');
-const ORDERS_FILE = path.join(__dirname, 'orders.json');
+// Database-only operations - no file system fallbacks
 
 app.use(cors({
     origin: true, // Allow all origins for Vercel deployment
@@ -245,72 +240,24 @@ app.use(session({
     name: 'leafy.sid'
 }));
 
-// Ensure files exist
-if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify([]));
-}
-if (!fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify([
-        { username: 'sulvianti', password: 'wongirengjembuten69', role: 'admin' },
-        { username: 'customer', password: 'customer123', role: 'customer' }
-    ]));
-}
-if (!fs.existsSync(ORDERS_FILE)) {
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify([]));
-}
+// Database-only operations - no file system initialization needed
 
-// JWT Token-based authentication (database-first with file fallback)
+// JWT Token-based authentication (database only)
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
     console.log('Login attempt for:', username);
 
     try {
-        // First try to authenticate from database
-        const dbConnected = await testDatabaseConnection();
-        if (dbConnected) {
-            try {
-                const result = await pool.query(
-                    'SELECT username, password, role FROM users WHERE username = $1',
-                    [username]
-                );
+        const result = await pool.query(
+            'SELECT username, password, role FROM users WHERE username = $1',
+            [username]
+        );
 
-                if (result.rows.length > 0) {
-                    const user = result.rows[0];
+        if (result.rows.length > 0) {
+            const user = result.rows[0];
 
-                    // Check password
-                    if (user.password === password) {
-                        // Generate JWT token
-                        const token = jwt.sign(
-                            { username: user.username, role: user.role },
-                            JWT_SECRET,
-                            { expiresIn: '24h' }
-                        );
-
-                        console.log('Login successful from database, token generated for:', user.username);
-                        return res.json({
-                            success: true,
-                            role: user.role,
-                            token: token
-                        });
-                    } else {
-                        console.log('Login failed: Invalid password for user from database');
-                        return res.json({ success: false });
-                    }
-                }
-                // If user not found in database, continue to file system check
-                console.log('User not found in database, checking file system...');
-            } catch (dbError) {
-                console.error('Database query error during login:', dbError);
-                console.log('Falling back to file system...');
-            }
-        }
-
-        // Fallback to file system if database is not available or user not found
-        try {
-            const usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-            const user = usersData.find(u => u.username === username && u.password === password);
-
-            if (user) {
+            // Check password
+            if (user.password === password) {
                 // Generate JWT token
                 const token = jwt.sign(
                     { username: user.username, role: user.role },
@@ -318,19 +265,19 @@ app.post('/login', async (req, res) => {
                     { expiresIn: '24h' }
                 );
 
-                console.log('Login successful from file system, token generated for:', user.username);
-                res.json({
+                console.log('Login successful from database, token generated for:', user.username);
+                return res.json({
                     success: true,
                     role: user.role,
                     token: token
                 });
             } else {
-                console.log('Login failed: Invalid credentials');
-                res.json({ success: false });
+                console.log('Login failed: Invalid password for user from database');
+                return res.json({ success: false });
             }
-        } catch (fileError) {
-            console.error('File system error during login:', fileError);
-            res.status(500).json({ success: false, error: 'Login failed' });
+        } else {
+            console.log('Login failed: User not found');
+            return res.json({ success: false });
         }
     } catch (error) {
         console.error('Login error:', error);
@@ -344,7 +291,7 @@ app.post('/logout', verifyToken, (req, res) => {
     res.json({ success: true, message: 'Logged out successfully' });
 });
 
-// Register new user with file fallback
+// Register new user (database only)
 app.post('/register', async (req, res) => {
     const { username, password, role = 'customer' } = req.body;
 
@@ -353,59 +300,23 @@ app.post('/register', async (req, res) => {
     }
 
     try {
-        // Check database connection
-        const dbConnected = await testDatabaseConnection();
+        // Check if user already exists
+        const existingUser = await pool.query(
+            'SELECT username FROM users WHERE username = $1',
+            [username]
+        );
 
-        if (dbConnected) {
-            // Check if user already exists
-            const existingUser = await pool.query(
-                'SELECT username FROM users WHERE username = $1',
-                [username]
-            );
-
-            if (existingUser.rows.length > 0) {
-                return res.json({ success: false, message: 'Username sudah digunakan' });
-            }
-
-            // Insert new user
-            await pool.query(
-                'INSERT INTO users (username, password, role) VALUES ($1, $2, $3)',
-                [username, password, role]
-            );
-
-            console.log('User registered successfully in database:', username);
-        } else {
-            console.log('⚠️ Database not connected, falling back to file system for registration');
-
-            // Fallback to file system
-            try {
-                let usersData = [];
-                try {
-                    usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-                } catch (readError) {
-                    console.log('Users file not found or empty, creating new one');
-                }
-
-                // Check if user already exists
-                const existingUser = usersData.find(u => u.username === username);
-                if (existingUser) {
-                    return res.json({ success: false, message: 'Username sudah digunakan' });
-                }
-
-                // Add new user
-                const newUser = { username, password, role };
-                usersData.push(newUser);
-                fs.writeFileSync(USERS_FILE, JSON.stringify(usersData, null, 2));
-
-                console.log('User registered successfully in file system:', username);
-            } catch (fileError) {
-                console.error('❌ File system fallback failed for registration:', fileError);
-                return res.status(503).json({
-                    success: false,
-                    message: 'Service temporarily unavailable. Please try again later.'
-                });
-            }
+        if (existingUser.rows.length > 0) {
+            return res.json({ success: false, message: 'Username sudah digunakan' });
         }
+
+        // Insert new user
+        await pool.query(
+            'INSERT INTO users (username, password, role) VALUES ($1, $2, $3)',
+            [username, password, role]
+        );
+
+        console.log('User registered successfully in database:', username);
 
         // Auto login after registration (session-based, not JWT for registration)
         req.session.user = { username, role };
@@ -416,39 +327,7 @@ app.post('/register', async (req, res) => {
         });
     } catch (error) {
         console.error('Database error during registration:', error);
-
-        // Try file fallback even on database error
-        try {
-            let usersData = [];
-            try {
-                usersData = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-            } catch (readError) {
-                console.log('Users file not found or empty, creating new one');
-            }
-
-            // Check if user already exists
-            const existingUser = usersData.find(u => u.username === username);
-            if (existingUser) {
-                return res.json({ success: false, message: 'Username sudah digunakan' });
-            }
-
-            // Add new user
-            const newUser = { username, password, role };
-            usersData.push(newUser);
-            fs.writeFileSync(USERS_FILE, JSON.stringify(usersData, null, 2));
-
-            console.log('User registered in file system (after DB error):', username);
-
-            req.session.user = { username, role };
-            return res.json({
-                success: true,
-                message: 'Registrasi berhasil (file system)',
-                user: { username, role }
-            });
-        } catch (fileError) {
-            console.error('❌ File system fallback also failed for registration:', fileError);
-            res.status(500).json({ success: false, message: 'Database error' });
-        }
+        res.status(500).json({ success: false, message: 'Database error' });
     }
 });
 
@@ -466,7 +345,7 @@ app.get('/test-session', verifyToken, (req, res) => {
     });
 });
 
-// Get user orders (supports both authenticated and guest users with file fallback)
+// Get user orders (supports both authenticated and guest users, database only)
 app.get('/orders', async (req, res) => {
     // Add cache control headers
     res.set({
@@ -501,132 +380,56 @@ app.get('/orders', async (req, res) => {
     });
 
     try {
-        // Check database connection
-        const ordersDbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', ordersDbConnected);
+        let query = 'SELECT * FROM orders WHERE 1=1';
+        let params = [];
 
-        if (ordersDbConnected) {
-            let query = 'SELECT * FROM orders WHERE 1=1';
-            let params = [];
-
-            if (authenticatedUser) {
-                if (authenticatedUser.role === 'admin') {
-                    // Admin sees all orders
-                    query += ' ORDER BY order_date DESC';
-                } else {
-                    // Regular user sees their orders
-                    query += ' AND user_id = $1 ORDER BY order_date DESC';
-                    params = [authenticatedUser.username];
-                }
-            } else if (phone) {
-                // Guest lookup by phone
-                query += ' AND phone = $1 ORDER BY order_date DESC';
-                params = [phone];
-            } else if (orderId) {
-                // Guest lookup by order ID
-                query += ' AND id = $1 ORDER BY order_date DESC';
-                params = [orderId];
+        if (authenticatedUser) {
+            if (authenticatedUser.role === 'admin') {
+                // Admin sees all orders
+                query += ' ORDER BY order_date DESC';
             } else {
-                // No valid lookup method
-                return res.json([]);
+                // Regular user sees their orders
+                query += ' AND user_id = $1 ORDER BY order_date DESC';
+                params = [authenticatedUser.username];
             }
-
-            const result = await pool.query(query, params);
-            const ordersData = result.rows.map(row => ({
-                id: row.id,
-                userId: row.user_id,
-                batchId: row.batch_id,
-                quantity: row.quantity,
-                phone: row.phone,
-                address: row.address,
-                delivery: row.delivery,
-                payment: row.payment,
-                status: row.status,
-                orderDate: row.order_date,
-                totalPrice: row.total_price,
-                lastUpdated: row.last_updated
-            }));
-
-            console.log('Orders retrieved from database:', ordersData.length);
-            return res.json(ordersData);
+        } else if (phone) {
+            // Guest lookup by phone
+            query += ' AND phone = $1 ORDER BY order_date DESC';
+            params = [phone];
+        } else if (orderId) {
+            // Guest lookup by order ID
+            query += ' AND id = $1 ORDER BY order_date DESC';
+            params = [orderId];
         } else {
-            console.log('⚠️ Database not connected, falling back to file system for orders');
-
-            // Fallback to file system
-            try {
-                const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-
-                // Filter orders based on authentication and query parameters
-                let filteredOrders = ordersData;
-
-                if (authenticatedUser) {
-                    if (authenticatedUser.role === 'admin') {
-                        // Admin sees all orders
-                        filteredOrders = ordersData;
-                    } else {
-                        // Regular user sees their orders
-                        filteredOrders = ordersData.filter(order => order.userId === authenticatedUser.username);
-                    }
-                } else if (phone) {
-                    // Guest lookup by phone
-                    filteredOrders = ordersData.filter(order => order.phone === phone);
-                } else if (orderId) {
-                    // Guest lookup by order ID
-                    filteredOrders = ordersData.filter(order => order.id === orderId);
-                } else {
-                    // No valid lookup method
-                    return res.json([]);
-                }
-
-                // Sort by order date (newest first)
-                filteredOrders.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
-
-                console.log('Orders retrieved from file system:', filteredOrders.length);
-                return res.json(filteredOrders);
-            } catch (fileError) {
-                console.error('❌ File system fallback failed for orders:', fileError);
-                return res.status(503).json({
-                    error: 'Service temporarily unavailable',
-                    message: 'Unable to fetch orders data. Please try again later.'
-                });
-            }
+            // No valid lookup method
+            return res.json([]);
         }
+
+        const result = await pool.query(query, params);
+        const ordersData = result.rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            batchId: row.batch_id,
+            quantity: row.quantity,
+            phone: row.phone,
+            address: row.address,
+            delivery: row.delivery,
+            payment: row.payment,
+            status: row.status,
+            orderDate: row.order_date,
+            totalPrice: row.total_price,
+            lastUpdated: row.last_updated
+        }));
+
+        console.log('Orders retrieved from database:', ordersData.length);
+        res.json(ordersData);
     } catch (error) {
         console.error('Orders error:', error);
-
-        // Try file fallback even on database error
-        try {
-            const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-
-            // Filter orders based on authentication and query parameters
-            let filteredOrders = ordersData;
-
-            if (authenticatedUser) {
-                if (authenticatedUser.role === 'admin') {
-                    filteredOrders = ordersData;
-                } else {
-                    filteredOrders = ordersData.filter(order => order.userId === authenticatedUser.username);
-                }
-            } else if (phone) {
-                filteredOrders = ordersData.filter(order => order.phone === phone);
-            } else if (orderId) {
-                filteredOrders = ordersData.filter(order => order.id === orderId);
-            } else {
-                return res.json([]);
-            }
-
-            filteredOrders.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
-
-            console.log('Orders retrieved from file system (after DB error):', filteredOrders.length);
-            return res.json(filteredOrders);
-        } catch (fileError) {
-            console.error('❌ File system fallback also failed for orders:', fileError);
-            res.status(500).json({ error: 'Unable to fetch orders data' });
-        }
+        res.status(500).json({ error: 'Unable to fetch orders data' });
     }
 });
 
-// Update order status (admin only with file fallback)
+// Update order status (admin only, database only)
 app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
     const { orderId } = req.params;
     const { status } = req.body;
@@ -634,84 +437,24 @@ app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
     console.log('Updating order', orderId, 'to status:', status);
 
     try {
-        // Check database connection
-        const updateDbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', updateDbConnected);
+        const result = await pool.query(
+            'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+            [status, orderId]
+        );
 
-        if (updateDbConnected) {
-            const result = await pool.query(
-                'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-                [status, orderId]
-            );
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({ error: 'Order not found' });
-            }
-
-            console.log('Order', orderId, 'updated successfully to', status);
-            return res.json({ success: true, order: result.rows[0] });
-        } else {
-            console.log('⚠️ Database not connected, falling back to file system for order update');
-
-            // Fallback to file system
-            try {
-                let ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-                const orderIndex = ordersData.findIndex(o => o.id === orderId);
-
-                if (orderIndex === -1) {
-                    return res.status(404).json({ error: 'Order not found' });
-                }
-
-                ordersData[orderIndex].status = status;
-                ordersData[orderIndex].lastUpdated = new Date().toISOString();
-
-                fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
-
-                console.log('Order', orderId, 'updated successfully in file system to', status);
-                return res.json({
-                    success: true,
-                    order: ordersData[orderIndex],
-                    message: 'Order updated successfully (file system)'
-                });
-            } catch (fileError) {
-                console.error('❌ File system fallback failed for order update:', fileError);
-                return res.status(503).json({
-                    error: 'Service temporarily unavailable',
-                    message: 'Unable to update order. Please try again later.'
-                });
-            }
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Order not found' });
         }
+
+        console.log('Order', orderId, 'updated successfully to', status);
+        res.json({ success: true, order: result.rows[0] });
 
     } catch (error) {
         console.error('Error updating order:', error);
-
-        // Try file fallback even on database error
-        try {
-            let ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-            const orderIndex = ordersData.findIndex(o => o.id === orderId);
-
-            if (orderIndex === -1) {
-                return res.status(404).json({ error: 'Order not found' });
-            }
-
-            ordersData[orderIndex].status = status;
-            ordersData[orderIndex].lastUpdated = new Date().toISOString();
-
-            fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
-
-            console.log('Order', orderId, 'updated in file system (after DB error) to', status);
-            return res.json({
-                success: true,
-                order: ordersData[orderIndex],
-                message: 'Order updated successfully (file system fallback)'
-            });
-        } catch (fileError) {
-            console.error('❌ File system fallback also failed for order update:', fileError);
-            res.status(500).json({
-                error: 'Failed to update order',
-                details: error.message
-            });
-        }
+        res.status(500).json({
+            error: 'Failed to update order',
+            details: error.message
+        });
     }
 });
 
@@ -753,7 +496,7 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-// Get batches (database with file fallback)
+// Get batches (database only)
 app.get('/batches', async (req, res) => {
     // Add cache control headers to prevent browser caching
     res.set({
@@ -765,60 +508,30 @@ app.get('/batches', async (req, res) => {
     console.log('🔍 Batches endpoint called from:', req.headers.origin || 'unknown origin');
 
     try {
-        // Check database connection
-        const orderDbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', orderDbConnected);
+        // Get data from database only
+        const result = await pool.query('SELECT * FROM batches ORDER BY id');
+        const batchesData = result.rows.map(row => ({
+            id: row.id,
+            name: row.name,
+            plantDate: row.plant_date,
+            quantity: row.quantity,
+            stock: row.stock,
+            readyForSale: row.ready_for_sale
+        }));
 
-        if (orderDbConnected) {
-            // Get data from database
-            const result = await pool.query('SELECT * FROM batches ORDER BY id');
-            const batchesData = result.rows.map(row => ({
-                id: row.id,
-                name: row.name,
-                plantDate: row.plant_date,
-                quantity: row.quantity,
-                stock: row.stock,
-                readyForSale: row.ready_for_sale
-            }));
-
-            console.log('✅ Serving batches from database:', batchesData.length, 'batches');
-            return res.json(batchesData);
-        } else {
-            console.log('⚠️ Database not connected, falling back to file system');
-
-            // Fallback to file system
-            try {
-                const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-                console.log('✅ Serving batches from file system:', batchesData.length, 'batches');
-                return res.json(batchesData);
-            } catch (fileError) {
-                console.error('❌ File system fallback failed:', fileError);
-                return res.status(503).json({
-                    error: 'Service temporarily unavailable',
-                    message: 'Unable to fetch batches data. Please try again later.'
-                });
-            }
-        }
+        console.log('✅ Serving batches from database:', batchesData.length, 'batches');
+        res.json(batchesData);
 
     } catch (error) {
         console.error('❌ Batches endpoint error:', error);
-
-        // Try file fallback even on database error
-        try {
-            const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            console.log('✅ Serving batches from file system (after DB error):', batchesData.length, 'batches');
-            return res.json(batchesData);
-        } catch (fileError) {
-            console.error('❌ File system fallback also failed:', fileError);
-            res.status(500).json({
-                error: 'Unable to fetch batches data',
-                details: error.message
-            });
-        }
+        res.status(500).json({
+            error: 'Unable to fetch batches data',
+            details: error.message
+        });
     }
 });
 
-// Delete batch (admin only with file fallback)
+// Delete batch (admin only, database only)
 app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
     const batchId = parseInt(req.params.id);
 
@@ -830,89 +543,32 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
     }
 
     try {
-        // Check database connection
-        const dbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', dbConnected);
+        // Delete from database
+        const result = await pool.query('DELETE FROM batches WHERE id = $1 RETURNING *', [batchId]);
+        console.log('✅ Database delete result:', result.rows.length, 'rows affected');
 
-        if (dbConnected) {
-            // Delete from database
-            const result = await pool.query('DELETE FROM batches WHERE id = $1 RETURNING *', [batchId]);
-            console.log('✅ Database delete result:', result.rows.length, 'rows affected');
-
-            if (result.rows.length === 0) {
-                console.log('⚠️ Batch not found in database');
-                return res.status(404).json({ error: 'Batch not found' });
-            }
-
-            console.log('✅ Batch deleted from database successfully');
-            return res.json({
-                success: true,
-                message: 'Batch deleted successfully',
-                deletedBatch: result.rows[0]
-            });
-        } else {
-            console.log('⚠️ Database not connected, falling back to file system for batch deletion');
-
-            // Fallback to file system
-            try {
-                let batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-                const batchIndex = batchesData.findIndex(b => b.id === batchId);
-
-                if (batchIndex === -1) {
-                    console.log('⚠️ Batch not found in file system');
-                    return res.status(404).json({ error: 'Batch not found' });
-                }
-
-                const deletedBatch = batchesData.splice(batchIndex, 1)[0];
-                fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
-
-                console.log('✅ Batch deleted from file system successfully');
-                return res.json({
-                    success: true,
-                    message: 'Batch deleted successfully (file system)',
-                    deletedBatch: deletedBatch
-                });
-            } catch (fileError) {
-                console.error('❌ File system fallback failed for batch deletion:', fileError);
-                return res.status(503).json({
-                    error: 'Service temporarily unavailable',
-                    message: 'Unable to delete batch. Please try again later.'
-                });
-            }
+        if (result.rows.length === 0) {
+            console.log('⚠️ Batch not found in database');
+            return res.status(404).json({ error: 'Batch not found' });
         }
+
+        console.log('✅ Batch deleted from database successfully');
+        res.json({
+            success: true,
+            message: 'Batch deleted successfully',
+            deletedBatch: result.rows[0]
+        });
 
     } catch (error) {
         console.error('❌ Delete batch endpoint error:', error);
-
-        // Try file fallback even on database error
-        try {
-            let batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            const batchIndex = batchesData.findIndex(b => b.id === batchId);
-
-            if (batchIndex === -1) {
-                return res.status(404).json({ error: 'Batch not found' });
-            }
-
-            const deletedBatch = batchesData.splice(batchIndex, 1)[0];
-            fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
-
-            console.log('✅ Batch deleted from file system (after DB error)');
-            return res.json({
-                success: true,
-                message: 'Batch deleted successfully (file system fallback)',
-                deletedBatch: deletedBatch
-            });
-        } catch (fileError) {
-            console.error('❌ File system fallback also failed for batch deletion:', fileError);
-            res.status(500).json({
-                error: 'Unable to delete batch',
-                details: error.message
-            });
-        }
+        res.status(500).json({
+            error: 'Unable to delete batch',
+            details: error.message
+        });
     }
 });
 
-// Save batches (admin only with file fallback)
+// Save batches (admin only, database only)
 app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
     const batches = req.body;
     console.log('Saving batches:', batches.length, 'batches');
@@ -925,73 +581,35 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
     });
 
     try {
-        // Check database connection
-        const dbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', dbConnected);
+        // Clear existing batches
+        await pool.query('DELETE FROM batches');
+        console.log('🗑️ Cleared existing batches from database');
 
-        if (dbConnected) {
-            // Clear existing batches
-            await pool.query('DELETE FROM batches');
-            console.log('🗑️ Cleared existing batches from database');
-
-            // Insert new batches
-            for (const batch of batches) {
-                await pool.query(
-                    'INSERT INTO batches (id, name, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5, $6)',
-                    [batch.id, batch.name || 'Bibit Cabai', batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
-                );
-            }
-
-            console.log('✅ Data saved successfully to database');
-            return res.json({
-                success: true,
-                message: 'Data saved successfully',
-                count: batches.length
-            });
-        } else {
-            console.log('⚠️ Database not connected, falling back to file system for saving batches');
-
-            // Fallback to file system
-            try {
-                fs.writeFileSync(DATA_FILE, JSON.stringify(batches, null, 2));
-                console.log('✅ Data saved successfully to file system');
-                return res.json({
-                    success: true,
-                    message: 'Data saved successfully (file system)',
-                    count: batches.length
-                });
-            } catch (fileError) {
-                console.error('❌ File system fallback failed for saving batches:', fileError);
-                return res.status(503).json({
-                    error: 'Service temporarily unavailable',
-                    message: 'Unable to save batches data. Please try again later.'
-                });
-            }
+        // Insert new batches
+        for (const batch of batches) {
+            await pool.query(
+                'INSERT INTO batches (id, name, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5, $6)',
+                [batch.id, batch.name || 'Bibit Cabai', batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
+            );
         }
+
+        console.log('✅ Data saved successfully to database');
+        res.json({
+            success: true,
+            message: 'Data saved successfully',
+            count: batches.length
+        });
 
     } catch (error) {
         console.error('❌ Database error saving batches:', error);
-
-        // Try file fallback even on database error
-        try {
-            fs.writeFileSync(DATA_FILE, JSON.stringify(batches, null, 2));
-            console.log('✅ Data saved to file system (after DB error)');
-            return res.json({
-                success: true,
-                message: 'Data saved successfully (file system fallback)',
-                count: batches.length
-            });
-        } catch (fileError) {
-            console.error('❌ File system fallback also failed for saving batches:', fileError);
-            res.status(500).json({
-                error: 'Failed to save data',
-                details: error.message
-            });
-        }
+        res.status(500).json({
+            error: 'Failed to save data',
+            details: error.message
+        });
     }
 });
 
-// Submit order (supports both authenticated and guest users with file fallback)
+// Submit order (supports both authenticated and guest users, database only)
 app.post('/order', async (req, res) => {
     const { batchId, quantity, phone, address, delivery, payment, userId } = req.body;
 
@@ -1045,65 +663,19 @@ app.post('/order', async (req, res) => {
     console.log('Created order object:', order);
 
     try {
-        // Check database connection
-        const orderDbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', orderDbConnected);
+        // Insert order into database
+        await pool.query(
+            'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+            [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
+        );
 
-        if (orderDbConnected) {
-            // Insert order into database
-            await pool.query(
-                'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-                [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
-            );
+        // Update batch stock
+        await pool.query(
+            'UPDATE batches SET stock = stock - $1 WHERE id = $2',
+            [order.quantity, order.batchId]
+        );
 
-            // Update batch stock
-            await pool.query(
-                'UPDATE batches SET stock = stock - $1 WHERE id = $2',
-                [order.quantity, order.batchId]
-            );
-
-            console.log('Order saved successfully to database for user:', order.userId);
-        } else {
-            console.log('⚠️ Database not connected, falling back to file system for order submission');
-
-            // Fallback to file system
-            try {
-                // Read existing orders
-                let ordersData = [];
-                try {
-                    ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-                } catch (readError) {
-                    console.log('Orders file not found or empty, creating new one');
-                }
-
-                // Add new order
-                ordersData.push(order);
-
-                // Write back to file
-                fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
-
-                // Update batch stock in file system
-                try {
-                    let batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-                    const batchIndex = batchesData.findIndex(b => b.id === order.batchId);
-                    if (batchIndex !== -1) {
-                        batchesData[batchIndex].stock -= order.quantity;
-                        fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
-                    }
-                } catch (batchError) {
-                    console.error('Error updating batch stock in file system:', batchError);
-                }
-
-                console.log('Order saved successfully to file system for user:', order.userId);
-            } catch (fileError) {
-                console.error('❌ File system fallback failed for order submission:', fileError);
-                return res.status(503).json({
-                    success: false,
-                    error: 'Service temporarily unavailable',
-                    message: 'Unable to process order. Please try again later.'
-                });
-            }
-        }
+        console.log('Order saved successfully to database for user:', order.userId);
 
         // Send to Telegram with guest/authenticated indicator (always try this)
         try {
@@ -1122,51 +694,7 @@ app.post('/order', async (req, res) => {
         });
     } catch (error) {
         console.error('Error saving order:', error);
-
-        // Try file fallback even on database error
-        try {
-            let ordersData = [];
-            try {
-                ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-            } catch (readError) {
-                console.log('Orders file not found or empty, creating new one');
-            }
-
-            ordersData.push(order);
-            fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
-
-            // Update batch stock
-            try {
-                let batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-                const batchIndex = batchesData.findIndex(b => b.id === order.batchId);
-                if (batchIndex !== -1) {
-                    batchesData[batchIndex].stock -= order.quantity;
-                    fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
-                }
-            } catch (batchError) {
-                console.error('Error updating batch stock in file system:', batchError);
-            }
-
-            console.log('Order saved to file system (after DB error) for user:', order.userId);
-
-            // Send Telegram notification
-            try {
-                const userType = authenticatedUser ? 'User Terdaftar' : 'Guest Order';
-                const message = `🛒 Pesanan Baru #${order.id}:\n👤 ${userType}: ${order.userId}\n🌱 Batch: ${batchId}\n📦 Jumlah: ${quantity} bibit\n📞 Telepon: ${phone}\n🏠 Alamat: ${address}\n🚚 Pengiriman: ${delivery}\n💰 Pembayaran: ${payment}\n💵 Total: Rp ${order.totalPrice.toLocaleString('id-ID')}`;
-                sendToTelegram(message);
-            } catch (telegramError) {
-                console.error('Telegram notification failed:', telegramError);
-            }
-
-            return res.json({
-                success: true,
-                orderId: order.id,
-                userType: authenticatedUser ? 'authenticated' : 'guest'
-            });
-        } catch (fileError) {
-            console.error('❌ File system fallback also failed for order submission:', fileError);
-            res.status(500).json({ success: false, error: 'Failed to save order' });
-        }
+        res.status(500).json({ success: false, error: 'Failed to save order' });
     }
 });
 
