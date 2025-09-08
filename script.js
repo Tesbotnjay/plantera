@@ -1,5 +1,8 @@
 let batches = [];
 
+// API base URL - use current domain instead of hardcoded Railway URL
+const API_BASE_URL = window.location.origin;
+
 // Helper function to check if user is authenticated
 function isAuthenticated() {
     const token = localStorage.getItem('token');
@@ -39,7 +42,7 @@ async function loadBatches() {
             'Pragma': 'no-cache'
         };
 
-        const response = await fetch(`https://leafy-production.up.railway.app/batches?_t=${cacheBust}`, {
+        const response = await fetch(`${API_BASE_URL}/batches?_t=${cacheBust}`, {
             method: 'GET',
             headers: headers
         });
@@ -66,7 +69,7 @@ async function loadBatches() {
 async function saveBatches() {
     try {
         const cacheBust = Date.now();
-        const response = await fetch(`https://leafy-production.up.railway.app/batches?_t=${cacheBust}`, {
+        const response = await fetch(`${API_BASE_URL}/batches?_t=${cacheBust}`, {
             method: 'POST',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -391,7 +394,7 @@ async function login() {
     console.log('Attempting login for:', username);
 
     try {
-        const response = await fetch('https://leafy-production.up.railway.app/login', {
+        const response = await fetch(`${API_BASE_URL}/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -472,7 +475,7 @@ async function register() {
 
     try {
         console.log('Sending registration request...');
-        const response = await fetch('https://leafy-production.up.railway.app/register', {
+        const response = await fetch(`${API_BASE_URL}/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -518,7 +521,7 @@ function showLoginForm() {
 
 async function logout() {
     try {
-        await fetch('https://leafy-production.up.railway.app/logout', {
+        await fetch('${API_BASE_URL}/logout', {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -585,7 +588,7 @@ async function checkSession() {
 
     try {
         console.log('Checking session...');
-        const response = await fetch('https://leafy-production.up.railway.app/user', {
+        const response = await fetch('${API_BASE_URL}/user', {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -653,7 +656,7 @@ async function loadDashboard() {
     console.log('Loading dashboard for user:', currentUser.username);
 
     try {
-        const response = await fetch('https://leafy-production.up.railway.app/orders', {
+        const response = await fetch('${API_BASE_URL}/orders', {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -767,7 +770,7 @@ async function testSession() {
 
     try {
         console.log('Testing session...');
-        const response = await fetch('https://leafy-production.up.railway.app/test-session', {
+        const response = await fetch('${API_BASE_URL}/test-session', {
             method: 'GET',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -804,7 +807,7 @@ async function refreshSession() {
             console.log('Session invalid, attempting to re-authenticate...');
             // If we have stored credentials, try to login again
             if (currentUser && currentUser.username) {
-                const response = await fetch('https://leafy-production.up.railway.app/login', {
+                const response = await fetch('${API_BASE_URL}/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -860,7 +863,7 @@ async function loadAdminOrders() {
     lastAdminOrdersLoad = now;
 
     try {
-        const response = await fetch('https://leafy-production.up.railway.app/orders', {
+        const response = await fetch('${API_BASE_URL}/orders', {
             method: 'GET',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -978,7 +981,7 @@ function displayAdminOrders(orders) {
 
 async function updateOrderStatus(orderId, newStatus) {
     try {
-        const response = await fetch(`https://leafy-production.up.railway.app/orders/${orderId}`, {
+        const response = await fetch(`${API_BASE_URL}/orders/${orderId}`, {
             method: 'PUT',
             headers: getAuthHeaders(),
             body: JSON.stringify({ status: newStatus })
@@ -1107,7 +1110,7 @@ document.getElementById('order-form-element').addEventListener('submit', async f
                 orderData.userId = 'guest';
             }
 
-            const response = await fetch('https://leafy-production.up.railway.app/order', {
+            const response = await fetch('${API_BASE_URL}/order', {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(orderData)
@@ -1262,7 +1265,7 @@ async function trackGuestOrder() {
         if (orderId) queryParams.push(`orderId=${encodeURIComponent(orderId)}`);
         const queryString = queryParams.join('&');
 
-        const response = await fetch(`https://leafy-production.up.railway.app/orders?${queryString}`);
+        const response = await fetch(`${API_BASE_URL}/orders?${queryString}`);
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
