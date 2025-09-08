@@ -378,10 +378,63 @@ async function markReady(id) {
 
 async function deleteBatch(id) {
     if (confirm('Apakah Anda yakin ingin menghapus batch ini?')) {
-        batches = batches.filter(b => b.id !== id);
-        await saveBatches();
-        displayBatches();
-        displayAvailableStock();
+        console.log('🗑️ Attempting to delete batch with ID:', id);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/batches/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders({
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                })
+            });
+
+            console.log('🗑️ Delete response status:', response.status);
+
+            if (response.status === 401) {
+                console.log('401 error, token might be expired...');
+                localStorage.removeItem('token');
+                alert('Session expired. Please login again.');
+                document.getElementById('login-section').style.display = 'block';
+                document.getElementById('nav-tabs').style.display = 'none';
+                return;
+            }
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                console.error('❌ Delete failed:', response.status, errorData);
+                alert(`Gagal menghapus batch: ${errorData.error || 'Unknown error'}`);
+                return;
+            }
+
+            const result = await response.json();
+            console.log('✅ Delete successful:', result);
+
+            // Remove from local array
+            batches = batches.filter(b => b.id !== id);
+
+            // Refresh data from server to ensure consistency
+            await loadBatches();
+
+            // Refresh displays
+            displayBatches();
+            displayAvailableStock();
+
+            // Show success notification
+            showNotification(`✅ Batch berhasil dihapus!`);
+            console.log('🗑️ Batch deleted successfully');
+
+        } catch (error) {
+            console.error('❌ Delete batch error:', error);
+
+            if (error.message === 'Authentication required. Please login.') {
+                alert('Authentication required. Please login.');
+                document.getElementById('login-section').style.display = 'block';
+                document.getElementById('nav-tabs').style.display = 'none';
+            } else {
+                alert(`Error saat menghapus batch: ${error.message}`);
+            }
+        }
     }
 }
 

@@ -1,13 +1,5 @@
 [
   {
-    "id": 2,
-    "name": "Bibit Cabai Rawit",
-    "plantDate": "2024-08-20",
-    "quantity": 150,
-    "stock": 150,
-    "readyForSale": false
-  },
-  {
     "id": 3,
     "name": "Bibit Cabai Besar",
     "plantDate": "2024-07-10",
