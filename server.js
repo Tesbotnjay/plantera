@@ -192,7 +192,7 @@ const USERS_FILE = path.join(__dirname, 'users.json');
 const ORDERS_FILE = path.join(__dirname, 'orders.json');
 
 app.use(cors({
-    origin: 'https://plantera-gamma.vercel.app',
+    origin: true, // Allow all origins for Vercel deployment
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma']
