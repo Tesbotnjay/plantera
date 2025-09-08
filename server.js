@@ -200,6 +200,12 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// Logging middleware for debugging
+app.use((req, res, next) => {
+    console.log('Request:', req.method, req.url, 'from', req.headers.origin || 'no origin');
+    next();
+});
+
 // Handle favicon.ico requests
 app.get('/favicon.ico', (req, res) => {
     res.status(204).end(); // No content response to prevent 404
