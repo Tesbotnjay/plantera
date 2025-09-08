@@ -12,6 +12,8 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || 'leafy-jwt-secret-key-2024';
 
+console.log('PORT env:', process.env.PORT);
+
 // PostgreSQL connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
