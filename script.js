@@ -588,7 +588,7 @@ async function checkSession() {
 
     try {
         console.log('Checking session...');
-        const response = await fetch('${API_BASE_URL}/user', {
+        const response = await fetch(`${API_BASE_URL}/user`, {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -656,7 +656,7 @@ async function loadDashboard() {
     console.log('Loading dashboard for user:', currentUser.username);
 
     try {
-        const response = await fetch('${API_BASE_URL}/orders', {
+        const response = await fetch(`${API_BASE_URL}/orders`, {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -770,7 +770,7 @@ async function testSession() {
 
     try {
         console.log('Testing session...');
-        const response = await fetch('${API_BASE_URL}/test-session', {
+        const response = await fetch(`${API_BASE_URL}/test-session`, {
             method: 'GET',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -807,7 +807,7 @@ async function refreshSession() {
             console.log('Session invalid, attempting to re-authenticate...');
             // If we have stored credentials, try to login again
             if (currentUser && currentUser.username) {
-                const response = await fetch('${API_BASE_URL}/login', {
+                const response = await fetch(`${API_BASE_URL}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -863,7 +863,7 @@ async function loadAdminOrders() {
     lastAdminOrdersLoad = now;
 
     try {
-        const response = await fetch('${API_BASE_URL}/orders', {
+        const response = await fetch(`${API_BASE_URL}/orders`, {
             method: 'GET',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -1110,7 +1110,7 @@ document.getElementById('order-form-element').addEventListener('submit', async f
                 orderData.userId = 'guest';
             }
 
-            const response = await fetch('${API_BASE_URL}/order', {
+            const response = await fetch(`${API_BASE_URL}/order`, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(orderData)
