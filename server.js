@@ -193,6 +193,7 @@ const ORDERS_FILE = path.join(__dirname, 'orders.json');
 
 app.use(cors({
     origin: function (origin, callback) {
+        console.log('CORS origin:', origin);
         // Allow requests from localhost and common development ports
         const allowedOrigins = [
             'http://localhost:3000',
@@ -211,6 +212,7 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
+            console.log('Origin not in allowed list, but allowing:', origin);
             callback(null, true); // Allow all for development
         }
     },
