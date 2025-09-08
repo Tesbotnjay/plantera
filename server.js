@@ -203,7 +203,6 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma']
 }));
 app.use(express.json());
-app.use(express.static(__dirname));
 
 // Logging middleware for debugging
 app.use((req, res, next) => {
@@ -664,6 +663,78 @@ app.get('/batches', async (req, res) => {
     }
 });
 
+// Delete batch (admin only)
+app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
+    const batchId = parseInt(req.params.id);
+
+    console.log('🗑️ Delete batch request for ID:', batchId);
+
+    if (!batchId || isNaN(batchId)) {
+        console.log('❌ Invalid batch ID provided');
+        return res.status(400).json({ error: 'Invalid batch ID' });
+    }
+
+    try {
+        // First try to delete from database
+        const dbConnected = await testDatabaseConnection();
+        console.log('🗄️ Database connection status:', dbConnected);
+
+        if (dbConnected) {
+            try {
+                const result = await pool.query('DELETE FROM batches WHERE id = $1 RETURNING *', [batchId]);
+                console.log('✅ Database delete result:', result.rows.length, 'rows affected');
+
+                if (result.rows.length === 0) {
+                    console.log('⚠️ Batch not found in database');
+                    return res.status(404).json({ error: 'Batch not found' });
+                }
+
+                console.log('✅ Batch deleted from database successfully');
+                return res.json({
+                    success: true,
+                    message: 'Batch deleted successfully',
+                    deletedBatch: result.rows[0]
+                });
+            } catch (dbError) {
+                console.error('❌ Database delete error:', dbError);
+                console.log('🔄 Falling back to file system...');
+            }
+        } else {
+            console.log('⚠️ Database not connected, using file system fallback');
+        }
+
+        // Fallback to file system if database is not available
+        try {
+            const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+            const batchIndex = batchesData.findIndex(b => b.id === batchId);
+
+            if (batchIndex === -1) {
+                console.log('⚠️ Batch not found in file system');
+                return res.status(404).json({ error: 'Batch not found' });
+            }
+
+            const deletedBatch = batchesData.splice(batchIndex, 1)[0];
+            fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
+
+            console.log('✅ Batch deleted from file system successfully');
+            res.json({
+                success: true,
+                message: 'Batch deleted successfully',
+                deletedBatch: deletedBatch
+            });
+        } catch (fileError) {
+            console.error('❌ File system delete error:', fileError);
+            res.status(500).json({ error: 'Failed to delete batch from file system' });
+        }
+    } catch (error) {
+        console.error('❌ Delete batch endpoint error:', error);
+        res.status(500).json({
+            error: 'Unable to delete batch',
+            details: error.message
+        });
+    }
+});
+
 // Save batches (admin only)
 app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
     const batches = req.body;
@@ -900,6 +971,9 @@ app.get('/status', async (req, res) => {
         });
     }
 });
+
+// Static file serving (placed after API routes to avoid conflicts)
+app.use(express.static(__dirname));
 
 // Initialize database and start server
 async function startServer() {
