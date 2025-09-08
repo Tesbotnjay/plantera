@@ -431,84 +431,61 @@ app.get('/orders', async (req, res) => {
     });
 
     try {
-        // First try to get data from database
-        const dbConnected = await testDatabaseConnection();
-        if (dbConnected) {
-            try {
-                let query = 'SELECT * FROM orders WHERE 1=1';
-                let params = [];
+        // Check database connection
+        const ordersDbConnected = await testDatabaseConnection();
+        console.log('🗄️ Database connection status:', ordersDbConnected);
 
-                if (authenticatedUser) {
-                    if (authenticatedUser.role === 'admin') {
-                        // Admin sees all orders
-                        query += ' ORDER BY order_date DESC';
-                    } else {
-                        // Regular user sees their orders
-                        query += ' AND user_id = $1 ORDER BY order_date DESC';
-                        params = [authenticatedUser.username];
-                    }
-                } else if (phone) {
-                    // Guest lookup by phone
-                    query += ' AND phone = $1 ORDER BY order_date DESC';
-                    params = [phone];
-                } else if (orderId) {
-                    // Guest lookup by order ID
-                    query += ' AND id = $1 ORDER BY order_date DESC';
-                    params = [orderId];
-                } else {
-                    // No valid lookup method
-                    return res.json([]);
-                }
-
-                const result = await pool.query(query, params);
-                const ordersData = result.rows.map(row => ({
-                    id: row.id,
-                    userId: row.user_id,
-                    batchId: row.batch_id,
-                    quantity: row.quantity,
-                    phone: row.phone,
-                    address: row.address,
-                    delivery: row.delivery,
-                    payment: row.payment,
-                    status: row.status,
-                    orderDate: row.order_date,
-                    totalPrice: row.total_price,
-                    lastUpdated: row.last_updated
-                }));
-
-                console.log('Orders retrieved from database:', ordersData.length);
-                return res.json(ordersData);
-            } catch (dbError) {
-                console.error('Database query error:', dbError);
-                console.log('Falling back to file system...');
-            }
+        if (!ordersDbConnected) {
+            console.log('❌ Database not connected');
+            return res.status(503).json({
+                error: 'Database not available',
+                message: 'Unable to fetch orders. Database connection required.'
+            });
         }
 
-        // Fallback to file system if database is not available
-        try {
-            const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+        let query = 'SELECT * FROM orders WHERE 1=1';
+        let params = [];
 
-            let filteredOrders = [];
-            if (authenticatedUser) {
-                if (authenticatedUser.role === 'admin') {
-                    filteredOrders = ordersData;
-                } else {
-                    filteredOrders = ordersData.filter(order => order.userId === authenticatedUser.username);
-                }
-            } else if (phone) {
-                filteredOrders = ordersData.filter(order => order.phone === phone);
-            } else if (orderId) {
-                filteredOrders = ordersData.filter(order => order.id === orderId);
+        if (authenticatedUser) {
+            if (authenticatedUser.role === 'admin') {
+                // Admin sees all orders
+                query += ' ORDER BY order_date DESC';
+            } else {
+                // Regular user sees their orders
+                query += ' AND user_id = $1 ORDER BY order_date DESC';
+                params = [authenticatedUser.username];
             }
-
-            console.log('Orders retrieved from file system:', filteredOrders.length);
-            res.json(filteredOrders);
-        } catch (fileError) {
-            console.error('File system error:', fileError);
-            // Return empty array if both database and file fail
-            console.log('Returning empty orders array');
-            res.json([]);
+        } else if (phone) {
+            // Guest lookup by phone
+            query += ' AND phone = $1 ORDER BY order_date DESC';
+            params = [phone];
+        } else if (orderId) {
+            // Guest lookup by order ID
+            query += ' AND id = $1 ORDER BY order_date DESC';
+            params = [orderId];
+        } else {
+            // No valid lookup method
+            return res.json([]);
         }
+
+        const result = await pool.query(query, params);
+        const ordersData = result.rows.map(row => ({
+            id: row.id,
+            userId: row.user_id,
+            batchId: row.batch_id,
+            quantity: row.quantity,
+            phone: row.phone,
+            address: row.address,
+            delivery: row.delivery,
+            payment: row.payment,
+            status: row.status,
+            orderDate: row.order_date,
+            totalPrice: row.total_price,
+            lastUpdated: row.last_updated
+        }));
+
+        console.log('Orders retrieved from database:', ordersData.length);
+        res.json(ordersData);
     } catch (error) {
         console.error('Orders error:', error);
         res.status(500).json({ error: 'Unable to fetch orders data' });
@@ -523,47 +500,36 @@ app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
     console.log('Updating order', orderId, 'to status:', status);
 
     try {
-        const dbConnected = await testDatabaseConnection();
+        // Check database connection
+        const updateDbConnected = await testDatabaseConnection();
+        console.log('🗄️ Database connection status:', updateDbConnected);
 
-        if (dbConnected) {
-            const result = await pool.query(
-                'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-                [status, orderId]
-            );
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({ error: 'Order not found' });
-            }
-
-            console.log('Order', orderId, 'updated successfully to', status);
-            res.json({ success: true, order: result.rows[0] });
-        } else {
-            console.log('Database not available, updating order in file system');
-
-            // Update in file system
-            try {
-                const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-                const orderIndex = ordersData.findIndex(order => order.id === orderId);
-
-                if (orderIndex === -1) {
-                    return res.status(404).json({ error: 'Order not found' });
-                }
-
-                ordersData[orderIndex].status = status;
-                ordersData[orderIndex].lastUpdated = new Date().toISOString();
-
-                fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
-
-                console.log('Order', orderId, 'updated in file system to', status);
-                res.json({ success: true, order: ordersData[orderIndex] });
-            } catch (fileError) {
-                console.error('Error updating order in file system:', fileError);
-                res.status(500).json({ error: 'Failed to update order' });
-            }
+        if (!updateDbConnected) {
+            console.log('❌ Database not connected');
+            return res.status(503).json({
+                error: 'Database not available',
+                message: 'Unable to update order. Database connection required.'
+            });
         }
+
+        const result = await pool.query(
+            'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+            [status, orderId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        console.log('Order', orderId, 'updated successfully to', status);
+        res.json({ success: true, order: result.rows[0] });
+
     } catch (error) {
         console.error('Error updating order:', error);
-        res.status(500).json({ error: 'Failed to update order' });
+        res.status(500).json({
+            error: 'Failed to update order',
+            details: error.message
+        });
     }
 });
 
@@ -605,7 +571,7 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-// Get batches (database-first with file fallback)
+// Get batches (database only)
 app.get('/batches', async (req, res) => {
     // Add cache control headers to prevent browser caching
     res.set({
@@ -615,51 +581,40 @@ app.get('/batches', async (req, res) => {
     });
 
     console.log('🔍 Batches endpoint called from:', req.headers.origin || 'unknown origin');
-    console.log('📊 Request headers:', JSON.stringify(req.headers, null, 2));
 
     try {
-        // First try to get data from database
-        const dbConnected = await testDatabaseConnection();
-        console.log('🗄️ Database connection status:', dbConnected);
+        // Check database connection
+        const orderDbConnected = await testDatabaseConnection();
+        console.log('🗄️ Database connection status:', orderDbConnected);
 
-        if (dbConnected) {
-            try {
-                const result = await pool.query('SELECT * FROM batches ORDER BY id');
-                const batchesData = result.rows.map(row => ({
-                    id: row.id,
-                    name: row.name,
-                    plantDate: row.plant_date,
-                    quantity: row.quantity,
-                    stock: row.stock,
-                    readyForSale: row.ready_for_sale
-                }));
-
-                console.log('✅ Serving batches from database:', batchesData.length, 'batches');
-                console.log('📦 Batches data:', JSON.stringify(batchesData, null, 2));
-                return res.json(batchesData);
-            } catch (dbError) {
-                console.error('❌ Database query error:', dbError);
-                console.log('🔄 Falling back to file system...');
-            }
-        } else {
-            console.log('⚠️ Database not connected, using file system fallback');
+        if (!dbConnected) {
+            console.log('❌ Database not connected');
+            return res.status(503).json({
+                error: 'Database not available',
+                message: 'Unable to fetch batches. Database connection required.'
+            });
         }
 
-        // Fallback to file system if database is not available
-        try {
-            const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            console.log('📁 Serving batches from file system:', batchesData.length, 'batches');
-            console.log('📦 File system batches data:', JSON.stringify(batchesData, null, 2));
-            res.json(batchesData);
-        } catch (fileError) {
-            console.error('❌ File system error:', fileError);
-            // Return empty array if both database and file fail
-            console.log('🚫 Returning empty batches array');
-            res.json([]);
-        }
+        // Get data from database
+        const result = await pool.query('SELECT * FROM batches ORDER BY id');
+        const batchesData = result.rows.map(row => ({
+            id: row.id,
+            name: row.name,
+            plantDate: row.plant_date,
+            quantity: row.quantity,
+            stock: row.stock,
+            readyForSale: row.ready_for_sale
+        }));
+
+        console.log('✅ Serving batches from database:', batchesData.length, 'batches');
+        res.json(batchesData);
+
     } catch (error) {
         console.error('❌ Batches endpoint error:', error);
-        res.status(500).json({ error: 'Unable to fetch batches data', details: error.message });
+        res.status(500).json({
+            error: 'Unable to fetch batches data',
+            details: error.message
+        });
     }
 });
 
@@ -675,71 +630,34 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
     }
 
     try {
-        // First try to delete from database
+        // Check database connection
         const dbConnected = await testDatabaseConnection();
         console.log('🗄️ Database connection status:', dbConnected);
 
-        if (dbConnected) {
-            try {
-                const result = await pool.query('DELETE FROM batches WHERE id = $1 RETURNING *', [batchId]);
-                console.log('✅ Database delete result:', result.rows.length, 'rows affected');
-
-                if (result.rows.length === 0) {
-                    console.log('⚠️ Batch not found in database');
-                    return res.status(404).json({ error: 'Batch not found' });
-                }
-
-                console.log('✅ Batch deleted from database successfully');
-                return res.json({
-                    success: true,
-                    message: 'Batch deleted successfully',
-                    deletedBatch: result.rows[0]
-                });
-            } catch (dbError) {
-                console.error('❌ Database delete error:', dbError);
-                console.log('🔄 Falling back to file system...');
-            }
-        } else {
-            console.log('⚠️ Database not connected, using file system fallback');
-        }
-
-        // Fallback to file system if database is not available
-        try {
-            console.log('📁 Reading batches from file system...');
-            const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            console.log('📁 Current batches in file:', batchesData.length);
-
-            const batchIndex = batchesData.findIndex(b => b.id === batchId);
-            console.log('📁 Batch index found:', batchIndex, 'for ID:', batchId);
-
-            if (batchIndex === -1) {
-                console.log('⚠️ Batch not found in file system');
-                return res.status(404).json({ error: 'Batch not found' });
-            }
-
-            const deletedBatch = batchesData.splice(batchIndex, 1)[0];
-            console.log('📁 Deleted batch:', deletedBatch);
-
-            // Write the updated data back to file
-            console.log('📁 Writing updated batches to file...');
-            fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
-            console.log('📁 File write successful, remaining batches:', batchesData.length);
-
-            console.log('✅ Batch deleted from file system successfully');
-            res.json({
-                success: true,
-                message: 'Batch deleted successfully',
-                deletedBatch: deletedBatch
-            });
-        } catch (fileError) {
-            console.error('❌ File system delete error:', fileError);
-            console.error('❌ Error details:', fileError.message);
-            console.error('❌ Stack trace:', fileError.stack);
-            res.status(500).json({
-                error: 'Failed to delete batch from file system',
-                details: fileError.message
+        if (!dbConnected) {
+            console.log('❌ Database not connected');
+            return res.status(503).json({
+                error: 'Database not available',
+                message: 'Unable to delete batch. Database connection required.'
             });
         }
+
+        // Delete from database
+        const result = await pool.query('DELETE FROM batches WHERE id = $1 RETURNING *', [batchId]);
+        console.log('✅ Database delete result:', result.rows.length, 'rows affected');
+
+        if (result.rows.length === 0) {
+            console.log('⚠️ Batch not found in database');
+            return res.status(404).json({ error: 'Batch not found' });
+        }
+
+        console.log('✅ Batch deleted from database successfully');
+        res.json({
+            success: true,
+            message: 'Batch deleted successfully',
+            deletedBatch: result.rows[0]
+        });
+
     } catch (error) {
         console.error('❌ Delete batch endpoint error:', error);
         res.status(500).json({
@@ -762,46 +680,43 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
     });
 
     try {
-        // Try to save to database first
+        // Check database connection
         const dbConnected = await testDatabaseConnection();
-        if (dbConnected) {
-            // Clear existing batches
-            await pool.query('DELETE FROM batches');
+        console.log('🗄️ Database connection status:', dbConnected);
 
-            // Insert new batches
-            for (const batch of batches) {
-                await pool.query(
-                    'INSERT INTO batches (id, name, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5, $6)',
-                    [batch.id, batch.name || 'Bibit Cabai', batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
-                );
-            }
-
-            console.log('Data saved successfully to database');
-        } else {
-            console.log('Database not available, saving to file system');
+        if (!dbConnected) {
+            console.log('❌ Database not connected');
+            return res.status(503).json({
+                error: 'Database not available',
+                message: 'Unable to save batches. Database connection required.'
+            });
         }
 
-        // Always save to file system as backup
-        try {
-            fs.writeFileSync(DATA_FILE, JSON.stringify(batches, null, 2));
-            console.log('Data saved to file system backup');
-        } catch (fileError) {
-            console.error('Error saving to file system:', fileError);
+        // Clear existing batches
+        await pool.query('DELETE FROM batches');
+        console.log('🗑️ Cleared existing batches from database');
+
+        // Insert new batches
+        for (const batch of batches) {
+            await pool.query(
+                'INSERT INTO batches (id, name, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5, $6)',
+                [batch.id, batch.name || 'Bibit Cabai', batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
+            );
         }
 
-        res.json({ success: true, message: 'Data saved successfully', count: batches.length });
+        console.log('✅ Data saved successfully to database');
+        res.json({
+            success: true,
+            message: 'Data saved successfully',
+            count: batches.length
+        });
+
     } catch (error) {
-        console.error('Database error saving batches:', error);
-
-        // Fallback: try to save to file system only
-        try {
-            fs.writeFileSync(DATA_FILE, JSON.stringify(batches, null, 2));
-            console.log('Data saved to file system as fallback');
-            res.json({ success: true, message: 'Data saved to file system', count: batches.length });
-        } catch (fileError) {
-            console.error('Error saving to file system:', fileError);
-            res.status(500).json({ error: 'Failed to save data' });
-        }
+        console.error('❌ Database error saving batches:', error);
+        res.status(500).json({
+            error: 'Failed to save data',
+            details: error.message
+        });
     }
 });
 
@@ -861,43 +776,32 @@ app.post('/order', async (req, res) => {
     try {
         const dbConnected = await testDatabaseConnection();
 
-        if (dbConnected) {
-            // Insert order into database
-            await pool.query(
-                'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-                [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
-            );
+        // Check database connection
+        const dbConnected = await testDatabaseConnection();
+        console.log('🗄️ Database connection status:', dbConnected);
 
-            // Update batch stock
-            await pool.query(
-                'UPDATE batches SET stock = stock - $1 WHERE id = $2',
-                [order.quantity, order.batchId]
-            );
-
-            console.log('Order saved successfully to database for user:', order.userId);
-        } else {
-            console.log('Database not available, saving order to file system');
-
-            // Save to file system
-            try {
-                const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-                ordersData.push(order);
-                fs.writeFileSync(ORDERS_FILE, JSON.stringify(ordersData, null, 2));
-
-                // Update batch stock in file system
-                const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-                const batch = batchesData.find(b => b.id === order.batchId);
-                if (batch) {
-                    batch.stock -= order.quantity;
-                    fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
-                }
-
-                console.log('Order saved to file system for user:', order.userId);
-            } catch (fileError) {
-                console.error('Error saving order to file system:', fileError);
-                return res.status(500).json({ success: false, error: 'Failed to save order' });
-            }
+        if (!orderDbConnected) {
+            console.log('❌ Database not connected');
+            return res.status(503).json({
+                success: false,
+                error: 'Database not available',
+                message: 'Unable to process order. Database connection required.'
+            });
         }
+
+        // Insert order into database
+        await pool.query(
+            'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+            [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
+        );
+
+        // Update batch stock
+        await pool.query(
+            'UPDATE batches SET stock = stock - $1 WHERE id = $2',
+            [order.quantity, order.batchId]
+        );
+
+        console.log('Order saved successfully to database for user:', order.userId);
 
         // Send to Telegram with guest/authenticated indicator
         const userType = authenticatedUser ? 'User Terdaftar' : 'Guest Order';
