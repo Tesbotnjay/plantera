@@ -843,26 +843,13 @@ function sendToTelegram(message) {
 }
 
 // Health check endpoint for Railway
-app.get('/health', async (req, res) => {
-    try {
-        const dbConnected = await testDatabaseConnection();
-        // Always return 200 to prevent Railway from stopping the container
-        res.status(200).json({
-            status: dbConnected ? 'healthy' : 'degraded',
-            database: dbConnected ? 'connected' : 'disconnected',
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime()
-        });
-    } catch (error) {
-        // Return 200 even on error to keep container running
-        res.status(200).json({
-            status: 'degraded',
-            database: 'error',
-            error: error.message,
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime()
-        });
-    }
+app.get('/health', (req, res) => {
+    // Simple health check without database test to ensure fast response
+    res.status(200).json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
 });
 
 // Additional health check endpoints that Railway might expect
