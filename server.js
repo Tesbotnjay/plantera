@@ -17,7 +17,12 @@ console.log('PORT env:', process.env.PORT);
 // PostgreSQL connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  // Add connection timeout and retry settings for Vercel
+  connectionTimeoutMillis: 5000,
+  query_timeout: 10000,
+  idleTimeoutMillis: 30000,
+  max: 10
 });
 
 // Test database connection
@@ -610,9 +615,14 @@ app.get('/batches', async (req, res) => {
         'Expires': '0'
     });
 
+    console.log('🔍 Batches endpoint called from:', req.headers.origin || 'unknown origin');
+    console.log('📊 Request headers:', JSON.stringify(req.headers, null, 2));
+
     try {
         // First try to get data from database
         const dbConnected = await testDatabaseConnection();
+        console.log('🗄️ Database connection status:', dbConnected);
+
         if (dbConnected) {
             try {
                 const result = await pool.query('SELECT * FROM batches ORDER BY id');
@@ -625,28 +635,32 @@ app.get('/batches', async (req, res) => {
                     readyForSale: row.ready_for_sale
                 }));
 
-                console.log('Serving batches from database:', batchesData.length, 'batches');
+                console.log('✅ Serving batches from database:', batchesData.length, 'batches');
+                console.log('📦 Batches data:', JSON.stringify(batchesData, null, 2));
                 return res.json(batchesData);
             } catch (dbError) {
-                console.error('Database query error:', dbError);
-                console.log('Falling back to file system...');
+                console.error('❌ Database query error:', dbError);
+                console.log('🔄 Falling back to file system...');
             }
+        } else {
+            console.log('⚠️ Database not connected, using file system fallback');
         }
 
         // Fallback to file system if database is not available
         try {
             const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            console.log('Serving batches from file system:', batchesData.length, 'batches');
+            console.log('📁 Serving batches from file system:', batchesData.length, 'batches');
+            console.log('📦 File system batches data:', JSON.stringify(batchesData, null, 2));
             res.json(batchesData);
         } catch (fileError) {
-            console.error('File system error:', fileError);
+            console.error('❌ File system error:', fileError);
             // Return empty array if both database and file fail
-            console.log('Returning empty batches array');
+            console.log('🚫 Returning empty batches array');
             res.json([]);
         }
     } catch (error) {
-        console.error('Batches error:', error);
-        res.status(500).json({ error: 'Unable to fetch batches data' });
+        console.error('❌ Batches endpoint error:', error);
+        res.status(500).json({ error: 'Unable to fetch batches data', details: error.message });
     }
 });
 
