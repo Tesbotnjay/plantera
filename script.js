@@ -39,7 +39,7 @@ async function loadBatches() {
             'Pragma': 'no-cache'
         };
 
-        const response = await fetch(`https://plantera-production.up.railway.app/batches?_t=${cacheBust}`, {
+        const response = await fetch(`https://leafy-production.up.railway.app/batches?_t=${cacheBust}`, {
             method: 'GET',
             headers: headers
         });
@@ -66,7 +66,7 @@ async function loadBatches() {
 async function saveBatches() {
     try {
         const cacheBust = Date.now();
-        const response = await fetch(`https://plantera-production.up.railway.app/batches?_t=${cacheBust}`, {
+        const response = await fetch(`https://leafy-production.up.railway.app/batches?_t=${cacheBust}`, {
             method: 'POST',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -115,6 +115,11 @@ function calculateDays(plantDate) {
     return diffDays;
 }
 
+function getBatchName(batchId) {
+    const batch = batches.find(b => b.id === batchId);
+    return batch ? batch.name : null;
+}
+
 function displayBatches() {
     const batchList = document.getElementById('batch-list');
     batchList.innerHTML = '';
@@ -123,16 +128,17 @@ function displayBatches() {
         const div = document.createElement('div');
         div.className = 'batch-item';
         div.innerHTML = `
-            <h3>Batch ${batch.id}</h3>
-            <p>Tanggal Tanam: ${batch.plantDate}</p>
-            <p>Hari Ke: ${days}</p>
-            <p>Stok: ${batch.stock}</p>
-            <p>Siap Dijual: ${batch.readyForSale ? 'Ya' : 'Tidak'}</p>
+            <h3>${batch.name || `Batch ${batch.id}`}</h3>
+            <p><strong>ID:</strong> Batch ${batch.id}</p>
+            <p><strong>Tanggal Tanam:</strong> ${batch.plantDate}</p>
+            <p><strong>Hari Ke:</strong> ${days}</p>
+            <p><strong>Stok:</strong> ${batch.stock}/${batch.quantity}</p>
+            <p><strong>Siap Dijual:</strong> ${batch.readyForSale ? 'Ya ✅' : 'Tidak 🚧'}</p>
             <div class="stock-update">
-                <input type="number" id="stock-${batch.id}" min="0" value="${batch.stock}">
-                <button onclick="updateStock(${batch.id})">Update Stok</button>
-                <button onclick="markReady(${batch.id})">${batch.readyForSale ? 'Batal Siap' : 'Siap Dijual'}</button>
-                <button onclick="deleteBatch(${batch.id})" style="background-color: red;">Hapus Batch</button>
+                <input type="number" id="stock-${batch.id}" min="0" value="${batch.stock}" placeholder="Update stok">
+                <button onclick="updateStock(${batch.id})">📝 Update Stok</button>
+                <button onclick="markReady(${batch.id})">${batch.readyForSale ? '❌ Batal Siap' : '✅ Siap Dijual'}</button>
+                <button onclick="deleteBatch(${batch.id})" style="background-color: red;">🗑️ Hapus Batch</button>
             </div>
         `;
         batchList.appendChild(div);
@@ -160,7 +166,7 @@ function displayAvailableStock(filteredBatches = null) {
             const days = calculateDays(batch.plantDate);
             const div = document.createElement('div');
             div.className = `batch-item ${!batch.readyForSale ? 'batch-not-ready' : 'batch-ready'}`;
-            let content = `<h3>Batch ${batch.id}</h3><p>Jumlah Bibit: ${batch.quantity}</p><p>Hari Ke: ${days}</p>`;
+            let content = `<h3>${batch.name || `Batch ${batch.id}`}</h3><p><strong>Jenis:</strong> ${batch.name || 'Bibit Cabai'}</p><p><strong>Jumlah Bibit:</strong> ${batch.quantity}</p><p><strong>Hari Ke:</strong> ${days}</p>`;
 
             if (!batch.readyForSale) {
                 const progressPercent = Math.min(days, 14) / 14 * 100;
@@ -176,7 +182,7 @@ function displayAvailableStock(filteredBatches = null) {
                 content += `<p>✅ Stok Tersedia: ${batch.stock}</p><p class="status-ready">🎯 Siap Dijual - Bisa dipesan sekarang!</p>`;
                 const option = document.createElement('option');
                 option.value = batch.id;
-                option.textContent = `Batch ${batch.id} (Stok: ${batch.stock})`;
+                option.textContent = `${batch.name || `Batch ${batch.id}`} (Stok: ${batch.stock})`;
                 select.appendChild(option);
                 readyCount++;
             }
@@ -313,11 +319,12 @@ async function forceRefreshData() {
     }
 }
 
-async function addBatch(quantity, plantDate) {
+async function addBatch(name, quantity, plantDate) {
     const maxId = batches.length > 0 ? Math.max(...batches.map(b => b.id)) : 0;
     const id = maxId + 1;
     const newBatch = {
         id: id,
+        name: name,
         plantDate: plantDate,
         quantity: quantity,
         stock: quantity,
@@ -384,7 +391,7 @@ async function login() {
     console.log('Attempting login for:', username);
 
     try {
-        const response = await fetch('https://plantera-production.up.railway.app/login', {
+        const response = await fetch('https://leafy-production.up.railway.app/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -465,7 +472,7 @@ async function register() {
 
     try {
         console.log('Sending registration request...');
-        const response = await fetch('https://plantera-production.up.railway.app/register', {
+        const response = await fetch('https://leafy-production.up.railway.app/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -511,7 +518,7 @@ function showLoginForm() {
 
 async function logout() {
     try {
-        await fetch('https://plantera-production.up.railway.app/logout', {
+        await fetch('https://leafy-production.up.railway.app/logout', {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -578,7 +585,7 @@ async function checkSession() {
 
     try {
         console.log('Checking session...');
-        const response = await fetch('https://plantera-production.up.railway.app/user', {
+        const response = await fetch('https://leafy-production.up.railway.app/user', {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -646,7 +653,7 @@ async function loadDashboard() {
     console.log('Loading dashboard for user:', currentUser.username);
 
     try {
-        const response = await fetch('https://plantera-production.up.railway.app/orders', {
+        const response = await fetch('https://leafy-production.up.railway.app/orders', {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -720,8 +727,8 @@ function displayOrderHistory(orders) {
                     <div class="order-detail-value">${orderDate}</div>
                 </div>
                 <div class="order-detail">
-                    <div class="order-detail-label">Batch</div>
-                    <div class="order-detail-value">Batch ${order.batchId}</div>
+                    <div class="order-detail-label">Bibit</div>
+                    <div class="order-detail-value">${getBatchName(order.batchId) || `Batch ${order.batchId}`}</div>
                 </div>
                 <div class="order-detail">
                     <div class="order-detail-label">Jumlah</div>
@@ -760,7 +767,7 @@ async function testSession() {
 
     try {
         console.log('Testing session...');
-        const response = await fetch('https://plantera-production.up.railway.app/test-session', {
+        const response = await fetch('https://leafy-production.up.railway.app/test-session', {
             method: 'GET',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -797,7 +804,7 @@ async function refreshSession() {
             console.log('Session invalid, attempting to re-authenticate...');
             // If we have stored credentials, try to login again
             if (currentUser && currentUser.username) {
-                const response = await fetch('https://plantera-production.up.railway.app/login', {
+                const response = await fetch('https://leafy-production.up.railway.app/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -853,7 +860,7 @@ async function loadAdminOrders() {
     lastAdminOrdersLoad = now;
 
     try {
-        const response = await fetch('https://plantera-production.up.railway.app/orders', {
+        const response = await fetch('https://leafy-production.up.railway.app/orders', {
             method: 'GET',
             headers: getAuthHeaders({
                 'Cache-Control': 'no-cache',
@@ -935,8 +942,8 @@ function displayAdminOrders(orders) {
             </div>
             <div class="admin-order-details">
                 <div class="admin-order-detail">
-                    <span class="admin-detail-label">Batch:</span>
-                    <span class="admin-detail-value">Batch ${order.batchId}</span>
+                    <span class="admin-detail-label">Bibit:</span>
+                    <span class="admin-detail-value">${getBatchName(order.batchId) || `Batch ${order.batchId}`}</span>
                 </div>
                 <div class="admin-order-detail">
                     <span class="admin-detail-label">Jumlah:</span>
@@ -971,7 +978,7 @@ function displayAdminOrders(orders) {
 
 async function updateOrderStatus(orderId, newStatus) {
     try {
-        const response = await fetch(`https://plantera-production.up.railway.app/orders/${orderId}`, {
+        const response = await fetch(`https://leafy-production.up.railway.app/orders/${orderId}`, {
             method: 'PUT',
             headers: getAuthHeaders(),
             body: JSON.stringify({ status: newStatus })
@@ -1018,10 +1025,18 @@ document.getElementById('batch-form').addEventListener('submit', function(e) {
         return;
     }
 
+    const name = document.getElementById('batch-name').value.trim();
     const quantity = parseInt(document.getElementById('quantity').value);
     const plantDate = document.getElementById('plant-date').value;
-    addBatch(quantity, plantDate);
+
+    if (!name) {
+        alert('Nama batch harus diisi!');
+        return;
+    }
+
+    addBatch(name, quantity, plantDate);
     this.reset();
+    showNotification(`✅ Batch "${name}" berhasil ditambahkan!`);
 });
 
 function updateTotal() {
@@ -1077,12 +1092,25 @@ document.getElementById('order-form-element').addEventListener('submit', async f
         await saveBatches();
         displayBatches();
         displayAvailableStock();
-        // Send order to server
+        // Send order to server - allow guest orders
         try {
-            const response = await fetch('https://plantera-production.up.railway.app/order', {
+            // Prepare headers - use auth if available, otherwise send as guest
+            let headers = { 'Content-Type': 'application/json' };
+            let orderData = { batchId, quantity, phone, address, delivery, payment };
+
+            if (isAuthenticated()) {
+                // Add auth headers for logged-in users
+                headers = getAuthHeaders();
+                orderData.userId = currentUser.username;
+            } else {
+                // Guest order - no auth required
+                orderData.userId = 'guest';
+            }
+
+            const response = await fetch('https://leafy-production.up.railway.app/order', {
                 method: 'POST',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ batchId, quantity, phone, address, delivery, payment })
+                headers: headers,
+                body: JSON.stringify(orderData)
             });
 
             if (response.status === 401) {
@@ -1100,11 +1128,48 @@ document.getElementById('order-form-element').addEventListener('submit', async f
             if (result.success) {
                 setTimeout(() => {
                     loading.style.display = 'none';
-                    showNotification(`Terima kasih atas pesanan Anda! Order ID: #${result.orderId}. Silakan cek Dashboard untuk melihat status pesanan.`);
 
-                    // Refresh dashboard data if user is currently viewing dashboard
-                    if (document.getElementById('dashboard-section').classList.contains('active')) {
-                        loadDashboard();
+                    // Show prominent Order ID notification
+                    const orderIdMessage = `
+                        <div style="text-align: center; padding: 20px; background: #e8f5e8; border: 3px solid #4caf50; border-radius: 10px; margin: 10px 0;">
+                            <h3 style="color: #2e7d32; margin: 0 0 10px 0;">✅ PESANAN BERHASIL!</h3>
+                            <p style="font-size: 18px; font-weight: bold; color: #1b5e20; margin: 5px 0;">
+                                Order ID: <span style="font-size: 24px; color: #d32f2f;">#${result.orderId}</span>
+                            </p>
+                            <p style="color: #388e3c; margin: 5px 0;">
+                                📝 <strong>SIMPAN ORDER ID INI!</strong><br>
+                                Gunakan untuk cek status pesanan nanti
+                            </p>
+                        </div>
+                    `;
+
+                    // Create a custom notification element
+                    const customNotification = document.createElement('div');
+                    customNotification.style.cssText = `
+                        position: fixed;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        background: white;
+                        padding: 20px;
+                        border-radius: 15px;
+                        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                        z-index: 10000;
+                        max-width: 400px;
+                        text-align: center;
+                    `;
+                    customNotification.innerHTML = orderIdMessage + '<button onclick="this.parentElement.remove()" style="margin-top: 15px; padding: 10px 20px; background: #4caf50; color: white; border: none; border-radius: 5px; cursor: pointer;">OK</button>';
+
+                    document.body.appendChild(customNotification);
+
+                    if (isAuthenticated()) {
+                        showNotification(`Order ID: #${result.orderId} - Cek Dashboard untuk status lengkap`);
+                        // Refresh dashboard data if user is currently viewing dashboard
+                        if (document.getElementById('dashboard-section').classList.contains('active')) {
+                            loadDashboard();
+                        }
+                    } else {
+                        showNotification(`Order ID: #${result.orderId} - Gunakan untuk tracking pesanan`);
                     }
 
                     // Reset form without causing scroll/focus issues
@@ -1178,6 +1243,106 @@ document.getElementById('dashboard-btn').addEventListener('click', function() {
     loadDashboard();
 });
 
+
+// Guest Order Tracking Function
+async function trackGuestOrder() {
+    const phone = document.getElementById('tracking-phone').value.trim();
+    const orderId = document.getElementById('tracking-order-id').value.trim();
+    const resultsDiv = document.getElementById('tracking-results');
+
+    if (!phone && !orderId) {
+        showNotification('❌ Silakan masukkan nomor telepon atau Order ID');
+        return;
+    }
+
+    try {
+        // Build query parameters
+        let queryParams = [];
+        if (phone) queryParams.push(`phone=${encodeURIComponent(phone)}`);
+        if (orderId) queryParams.push(`orderId=${encodeURIComponent(orderId)}`);
+        const queryString = queryParams.join('&');
+
+        const response = await fetch(`https://leafy-production.up.railway.app/orders?${queryString}`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const orders = await response.json();
+
+        if (orders.length === 0) {
+            resultsDiv.innerHTML = `
+                <div class="no-orders-found">
+                    <h4>🔍 Tidak ada pesanan ditemukan</h4>
+                    <p>Pastikan nomor telepon atau Order ID yang Anda masukkan sudah benar.</p>
+                    <p>Jika masih bermasalah, hubungi kami di: <strong>0858-2185-8088</strong></p>
+                </div>
+            `;
+        } else {
+            resultsDiv.innerHTML = `
+            <h4>📋 Status Pesanan Anda</h4>
+            <div class="guest-orders-list">
+                ${orders.map(order => `
+                    <div class="guest-order-item">
+                        <div class="guest-order-header">
+                            <div class="guest-order-id">
+                                <span style="font-size: 14px; color: #666;">Order ID:</span><br>
+                                <span style="font-size: 20px; font-weight: bold; color: #d32f2f;">#${order.id}</span>
+                            </div>
+                            <div class="guest-order-status ${order.status}">${order.status}</div>
+                        </div>
+                        <div class="guest-order-details">
+                            <div class="guest-order-detail">
+                                <span class="guest-detail-label">📦 Bibit:</span>
+                                <span class="guest-detail-value">${getBatchName(order.batchId) || `Batch ${order.batchId}`}</span>
+                            </div>
+                            <div class="guest-order-detail">
+                                <span class="guest-detail-label">🔢 Jumlah:</span>
+                                <span class="guest-detail-value">${order.quantity} bibit</span>
+                            </div>
+                            <div class="guest-order-detail">
+                                <span class="guest-detail-label">💰 Total:</span>
+                                <span class="guest-detail-value">Rp ${order.totalPrice.toLocaleString('id-ID')}</span>
+                            </div>
+                            <div class="guest-order-detail">
+                                <span class="guest-detail-label">📅 Tanggal:</span>
+                                <span class="guest-detail-value">${new Date(order.orderDate).toLocaleDateString('id-ID')}</span>
+                            </div>
+                            <div class="guest-order-detail">
+                                <span class="guest-detail-label">🚚 Pengiriman:</span>
+                                <span class="guest-detail-value">${order.delivery === 'pickup' ? 'Ambil di Tempat' : 'Antar ke Alamat'}</span>
+                            </div>
+                            <div class="guest-order-detail">
+                                <span class="guest-detail-label">💳 Pembayaran:</span>
+                                <span class="guest-detail-value">${order.payment}</span>
+                            </div>
+                        </div>
+                        <div class="order-tracking-note">
+                            <p style="margin: 10px 0; padding: 10px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 5px; font-weight: bold; color: #856404;">
+                                💡 <strong>PENTING:</strong> Simpan Order ID <strong style="color: #d32f2f;">#${order.id}</strong> untuk referensi selanjutnya
+                            </p>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        }
+
+        resultsDiv.style.display = 'block';
+        showNotification(`✅ Ditemukan ${orders.length} pesanan`);
+
+    } catch (error) {
+        console.error('Error tracking order:', error);
+        resultsDiv.innerHTML = `
+            <div class="tracking-error">
+                <h4>❌ Terjadi Kesalahan</h4>
+                <p>Gagal memuat status pesanan. Silakan coba lagi atau hubungi kami.</p>
+            </div>
+        `;
+        resultsDiv.style.display = 'block';
+        showNotification('❌ Gagal memuat status pesanan');
+    }
+}
 
 window.onload = async function() {
     setTimeout(async () => {

@@ -10,7 +10,7 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const JWT_SECRET = process.env.JWT_SECRET || 'plantera-jwt-secret-key-2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'leafy-jwt-secret-key-2024';
 
 // PostgreSQL connection
 const pool = new Pool({
@@ -67,6 +67,7 @@ async function initializeDatabase() {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS batches (
           id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL DEFAULT 'Bibit Cabai',
           plant_date DATE NOT NULL,
           quantity INTEGER NOT NULL,
           stock INTEGER NOT NULL,
@@ -74,6 +75,16 @@ async function initializeDatabase() {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+
+      // Add name column if it doesn't exist (for existing databases)
+      try {
+        await pool.query(`
+          ALTER TABLE batches ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'Bibit Cabai'
+        `);
+      } catch (alterError) {
+        console.log('Name column already exists or alter failed (this is normal for new databases)');
+      }
+
       console.log('Batches table ready');
     } catch (error) {
       console.error('Error creating batches table:', error);
@@ -189,9 +200,9 @@ app.use(cors({
             'http://localhost:8080',
             'http://127.0.0.1:8080',
             // Add production domains
-            'https://planteraweb.vercel.app',
-            'https://plantera-web.vercel.app',
-            'https://plantera-gamma.vercel.app'
+            'https://leafyweb.vercel.app',
+            'https://leafy-web.vercel.app',
+            'https://leafy-gamma.vercel.app'
         ];
 
         if (!origin || allowedOrigins.includes(origin)) {
@@ -225,7 +236,7 @@ try {
 // Enhanced session configuration with fallback
 app.use(session({
     store: sessionStore || undefined, // Use PostgreSQL store if available, otherwise memory store
-    secret: process.env.SESSION_SECRET || 'plantera-secret-key-2024',
+    secret: process.env.SESSION_SECRET || 'leafy-secret-key-2024',
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -234,7 +245,7 @@ app.use(session({
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
         sameSite: 'lax' // Changed to lax for Railway
     },
-    name: 'plantera.sid'
+    name: 'leafy.sid'
 }));
 
 // Ensure files exist
@@ -388,8 +399,8 @@ app.get('/test-session', verifyToken, (req, res) => {
     });
 });
 
-// Get user orders (database-first with file fallback)
-app.get('/orders', verifyToken, async (req, res) => {
+// Get user orders (supports both authenticated and guest users)
+app.get('/orders', async (req, res) => {
     // Add cache control headers
     res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -397,14 +408,62 @@ app.get('/orders', verifyToken, async (req, res) => {
         'Expires': '0'
     });
 
-    console.log('Orders request for user:', req.user.username, 'role:', req.user.role);
+    // Check if user is authenticated
+    let authenticatedUser = null;
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token) {
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            authenticatedUser = decoded;
+        } catch (err) {
+            console.log('Token verification failed for orders request');
+        }
+    }
+
+    // Check for guest order lookup by phone
+    const phone = req.query.phone;
+    const orderId = req.query.orderId;
+
+    console.log('Orders request:', {
+        authenticated: !!authenticatedUser,
+        user: authenticatedUser ? authenticatedUser.username : 'guest',
+        phone: phone || 'not provided',
+        orderId: orderId || 'not provided'
+    });
 
     try {
         // First try to get data from database
         const dbConnected = await testDatabaseConnection();
         if (dbConnected) {
             try {
-                const result = await pool.query('SELECT * FROM orders ORDER BY order_date DESC');
+                let query = 'SELECT * FROM orders WHERE 1=1';
+                let params = [];
+
+                if (authenticatedUser) {
+                    if (authenticatedUser.role === 'admin') {
+                        // Admin sees all orders
+                        query += ' ORDER BY order_date DESC';
+                    } else {
+                        // Regular user sees their orders
+                        query += ' AND user_id = $1 ORDER BY order_date DESC';
+                        params = [authenticatedUser.username];
+                    }
+                } else if (phone) {
+                    // Guest lookup by phone
+                    query += ' AND phone = $1 ORDER BY order_date DESC';
+                    params = [phone];
+                } else if (orderId) {
+                    // Guest lookup by order ID
+                    query += ' AND id = $1 ORDER BY order_date DESC';
+                    params = [orderId];
+                } else {
+                    // No valid lookup method
+                    return res.json([]);
+                }
+
+                const result = await pool.query(query, params);
                 const ordersData = result.rows.map(row => ({
                     id: row.id,
                     userId: row.user_id,
@@ -420,16 +479,8 @@ app.get('/orders', verifyToken, async (req, res) => {
                     lastUpdated: row.last_updated
                 }));
 
-                let filteredOrders;
-                if (req.user.role === 'admin') {
-                    filteredOrders = ordersData;
-                    console.log('Admin requesting all orders from database:', ordersData.length);
-                } else {
-                    // Filter orders for the specific user
-                    filteredOrders = ordersData.filter(order => order.userId === req.user.username);
-                    console.log('Orders for user', req.user.username + ' from database:', filteredOrders.length);
-                }
-                return res.json(filteredOrders);
+                console.log('Orders retrieved from database:', ordersData.length);
+                return res.json(ordersData);
             } catch (dbError) {
                 console.error('Database query error:', dbError);
                 console.log('Falling back to file system...');
@@ -440,15 +491,21 @@ app.get('/orders', verifyToken, async (req, res) => {
         try {
             const ordersData = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
 
-            if (req.user.role === 'admin') {
-                console.log('Admin requesting all orders from file system:', ordersData.length);
-                res.json(ordersData);
-            } else {
-                // Filter orders for the specific user
-                const userOrders = ordersData.filter(order => order.userId === req.user.username);
-                console.log('Orders for user', req.user.username + ' from file system:', userOrders.length);
-                res.json(userOrders);
+            let filteredOrders = [];
+            if (authenticatedUser) {
+                if (authenticatedUser.role === 'admin') {
+                    filteredOrders = ordersData;
+                } else {
+                    filteredOrders = ordersData.filter(order => order.userId === authenticatedUser.username);
+                }
+            } else if (phone) {
+                filteredOrders = ordersData.filter(order => order.phone === phone);
+            } else if (orderId) {
+                filteredOrders = ordersData.filter(order => order.id === orderId);
             }
+
+            console.log('Orders retrieved from file system:', filteredOrders.length);
+            res.json(filteredOrders);
         } catch (fileError) {
             console.error('File system error:', fileError);
             // Return empty array if both database and file fail
@@ -568,6 +625,7 @@ app.get('/batches', async (req, res) => {
                 const result = await pool.query('SELECT * FROM batches ORDER BY id');
                 const batchesData = result.rows.map(row => ({
                     id: row.id,
+                    name: row.name,
                     plantDate: row.plant_date,
                     quantity: row.quantity,
                     stock: row.stock,
@@ -621,8 +679,8 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
             // Insert new batches
             for (const batch of batches) {
                 await pool.query(
-                    'INSERT INTO batches (id, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5)',
-                    [batch.id, batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
+                    'INSERT INTO batches (id, name, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5, $6)',
+                    [batch.id, batch.name || 'Bibit Cabai', batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
                 );
             }
 
@@ -655,17 +713,46 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
     }
 });
 
-// Submit order
-app.post('/order', verifyToken, async (req, res) => {
-    const { batchId, quantity, phone, address, delivery, payment } = req.body;
-    const user = req.user;
+// Submit order (supports both authenticated and guest users)
+app.post('/order', async (req, res) => {
+    const { batchId, quantity, phone, address, delivery, payment, userId } = req.body;
 
-    console.log('Order submission:', { user: user ? user.username : 'guest', batchId, quantity });
+    // Check if user is authenticated via token
+    let authenticatedUser = null;
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token) {
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            authenticatedUser = decoded;
+        } catch (err) {
+            console.log('Token verification failed for order, proceeding as guest');
+        }
+    }
+
+    // Determine user ID (authenticated user or guest)
+    const finalUserId = authenticatedUser ? authenticatedUser.username : (userId || 'guest');
+
+    console.log('Order submission:', {
+        user: finalUserId,
+        authenticated: !!authenticatedUser,
+        batchId,
+        quantity
+    });
+
+    // Validate required fields
+    if (!batchId || !quantity || !phone || !address || !delivery || !payment) {
+        return res.status(400).json({
+            success: false,
+            error: 'Semua field harus diisi (batch, jumlah, telepon, alamat, pengiriman, pembayaran)'
+        });
+    }
 
     // Create order object
     const order = {
         id: Date.now().toString(),
-        userId: user ? user.username : 'guest',
+        userId: finalUserId,
         batchId: parseInt(batchId),
         quantity: parseInt(quantity),
         phone,
@@ -720,11 +807,16 @@ app.post('/order', verifyToken, async (req, res) => {
             }
         }
 
-        // Send to Telegram
-        const message = `Pesanan Baru #${order.id}:\nUser: ${order.userId}\nBatch: ${batchId}\nJumlah: ${quantity}\nTelepon: ${phone}\nAlamat: ${address}\nPengiriman: ${delivery}\nPembayaran: ${payment}\nTotal: Rp ${order.totalPrice.toLocaleString('id-ID')}`;
+        // Send to Telegram with guest/authenticated indicator
+        const userType = authenticatedUser ? 'User Terdaftar' : 'Guest Order';
+        const message = `🛒 Pesanan Baru #${order.id}:\n👤 ${userType}: ${order.userId}\n🌱 Batch: ${batchId}\n📦 Jumlah: ${quantity} bibit\n📞 Telepon: ${phone}\n🏠 Alamat: ${address}\n🚚 Pengiriman: ${delivery}\n💰 Pembayaran: ${payment}\n💵 Total: Rp ${order.totalPrice.toLocaleString('id-ID')}`;
         sendToTelegram(message);
 
-        res.json({ success: true, orderId: order.id });
+        res.json({
+            success: true,
+            orderId: order.id,
+            userType: authenticatedUser ? 'authenticated' : 'guest'
+        });
     } catch (error) {
         console.error('Error saving order:', error);
         res.status(500).json({ success: false, error: 'Failed to save order' });
@@ -824,7 +916,7 @@ app.get('/status', async (req, res) => {
 // Initialize database and start server
 async function startServer() {
   try {
-    console.log('🚀 Starting Plantera server...');
+    console.log('🚀 Starting Leafy server...');
 
     // Test database connection first
     const dbConnected = await testDatabaseConnection();
@@ -842,7 +934,7 @@ async function startServer() {
       console.log(`🏥 Health check available at http://localhost:${PORT}/health`);
       console.log(`📊 Status check available at http://localhost:${PORT}/status`);
       console.log(`🌐 Frontend available at http://localhost:${PORT}/`);
-      console.log('🎉 Plantera server is ready!');
+      console.log('🎉 Leafy server is ready!');
     });
 
   } catch (error) {

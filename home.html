@@ -3,13 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plantera</title>
+    <title>Leafy</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <header>
-        <h1>Plantera</h1>
-        <p class="subtitle">Khusus Wilayah Sekitar Samarinda - Bibit Cabai Berkualitas Tinggi</p>
+        <div class="header-content">
+            <div class="logo-container">
+                <img src="logo.jpg" alt="Leafy Logo" class="logo">
+                <div class="brand-text">
+                    <h1>Leafy</h1>
+                    <p class="subtitle">Khusus Wilayah Sekitar Samarinda - Bibit Cabai Berkualitas Tinggi</p>
+                </div>
+            </div>
+        </div>
         <div class="hamburger" onclick="toggleMenu()">
             <span></span>
             <span></span>
@@ -91,37 +98,138 @@
             <div id="available-stock">
                 <!-- Available batches for sale -->
             </div>
+            <!-- Guest Checkout Banner -->
+            <div class="guest-banner">
+                <div class="guest-banner-content">
+                    <h3>🚀 Pesan Tanpa Login</h3>
+                    <p>Tidak perlu buat akun! Pesan langsung dengan mudah</p>
+                    <div class="guest-features">
+                        <span>📱 Masukkan nomor HP saja</span>
+                        <span>🏠 Isi alamat pengiriman</span>
+                        <span>💰 Pilih metode pembayaran</span>
+                    </div>
+                </div>
+            </div>
+
             <div id="order-form">
-                <h3>Pesan Bibit</h3>
-                <p>Harga per bibit: Rp 5.000</p>
+                <h3>🛒 Form Pemesanan Bibit Cabai</h3>
+                <div class="order-instructions">
+                    <p><strong>Cara Pesan:</strong></p>
+                    <ol>
+                        <li>Pilih batch bibit yang tersedia</li>
+                        <li>Masukkan jumlah bibit yang diinginkan</li>
+                        <li>Isi nomor telepon untuk konfirmasi</li>
+                        <li>Tentukan alamat pengiriman</li>
+                        <li>Pilih metode pembayaran</li>
+                        <li>Klik "Kirim Pesanan"</li>
+                    </ol>
+                </div>
+
                 <form id="order-form-element">
-                    <label for="order-batch">Pilih Batch:</label>
-                    <select id="order-batch" required></select>
-                    <label for="order-quantity">Jumlah Bibit:</label>
-                    <input type="number" id="order-quantity" min="1" required>
-                    <label for="phone">Nomor Telepon:</label>
-                    <input type="tel" id="phone" required>
-                    <label for="address">Alamat:</label>
-                    <textarea id="address" required></textarea>
-                    <label for="delivery">Pengiriman:</label>
-                    <select id="delivery" required>
-                        <option value="">Pilih Pengiriman</option>
-                        <option value="pickup">Ambil di Tempat</option>
-                        <option value="delivery">Antar ke Alamat (Khusus Samarinda dan Sekitarnya)</option>
-                    </select>
-                    <label for="payment">Metode Pembayaran:</label>
-                    <select id="payment" required>
-                        <option value="cash">Cash</option>
-                        <option value="bca">BCA</option>
-                        <option value="gopay">GoPay</option>
-                        <option value="dana">DANA</option>
-                    </select>
-                    <p id="total-price">Total: Rp 0</p>
-                    <button type="submit">Kirim Pesanan</button>
+                    <div class="form-group">
+                        <label for="order-batch">📦 Pilih Batch Bibit:</label>
+                        <select id="order-batch" required>
+                            <option value="">-- Klik untuk pilih batch --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="order-quantity">🔢 Jumlah Bibit:</label>
+                        <input type="number" id="order-quantity" min="1" max="100" required placeholder="Contoh: 10">
+                        <small class="form-help">Harga per bibit: Rp 5.000</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="phone">📱 Nomor Telepon (untuk konfirmasi):</label>
+                        <input type="tel" id="phone" required placeholder="Contoh: 08123456789">
+                        <small class="form-help">Kami akan hubungi via WhatsApp untuk konfirmasi</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="address">🏠 Alamat Lengkap:</label>
+                        <textarea id="address" required placeholder="Contoh: Jl. Sudirman No. 123, Samarinda" rows="3"></textarea>
+                        <small class="form-help">Pastikan alamat lengkap agar mudah diantar</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="delivery">🚚 Pengiriman:</label>
+                        <select id="delivery" required>
+                            <option value="">-- Pilih cara pengiriman --</option>
+                            <option value="pickup">🛍️ Ambil di Tempat (Gratis)</option>
+                            <option value="delivery">🚛 Antar ke Alamat (Khusus Samarinda & sekitar)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="payment">💰 Metode Pembayaran:</label>
+                        <select id="payment" required>
+                            <option value="">-- Pilih cara bayar --</option>
+                            <option value="cash">💵 Cash (Bayar di tempat)</option>
+                            <option value="bca">🏦 BCA Transfer</option>
+                            <option value="gopay">📱 GoPay</option>
+                            <option value="dana">💳 DANA</option>
+                        </select>
+                    </div>
+
+                    <div class="total-section">
+                        <p id="total-price" class="total-price">Total: Rp 0</p>
+                        <p class="total-note">💡 Harga sudah termasuk biaya pengiriman (jika ada)</p>
+                    </div>
+
+                    <button type="submit" class="order-submit-btn">
+                        📤 Kirim Pesanan Sekarang
+                    </button>
                 </form>
+
                 <div id="loading" class="loading" style="display: none;">
                     <div class="spinner"></div>
-                    <p>Memproses pesanan...</p>
+                    <p>Memproses pesanan Anda...</p>
+                </div>
+            </div>
+
+            <!-- Order Tracking for Guest Users -->
+            <div class="order-tracking-section">
+                <h3>🔍 Cek Status Pesanan</h3>
+                <p>Sudah pesan tapi belum login? Cek status pesanan Anda di sini:</p>
+
+                <div class="tracking-form">
+                    <div class="tracking-input-group">
+                        <label for="tracking-phone">📱 Nomor Telepon:</label>
+                        <input type="tel" id="tracking-phone" placeholder="Masukkan nomor telepon Anda">
+                    </div>
+                    <div class="tracking-input-group">
+                        <label for="tracking-order-id">🆔 Atau Order ID:</label>
+                        <input type="text" id="tracking-order-id" placeholder="Contoh: 1234567890">
+                    </div>
+                    <button onclick="trackGuestOrder()" class="track-btn">
+                        🔍 Cek Status Pesanan
+                    </button>
+                </div>
+
+                <div id="tracking-results" class="tracking-results" style="display: none;">
+                    <!-- Order tracking results will be displayed here -->
+                </div>
+            </div>
+
+            <!-- Help Section for Elderly Users -->
+            <div class="help-section">
+                <h3>❓ Butuh Bantuan?</h3>
+                <div class="help-options">
+                    <div class="help-item">
+                        <h4>📞 Telepon Langsung</h4>
+                        <p>Hubungi kami di: <strong>0858-2185-8088</strong></p>
+                        <p>Kami siap bantu Anda memesan via telepon</p>
+                    </div>
+                    <div class="help-item">
+                        <h4>💬 WhatsApp</h4>
+                        <p>Kirim pesan ke: <strong>0858-2185-8088</strong></p>
+                        <p>Kami akan bantu proses pemesanan</p>
+                    </div>
+                    <div class="help-item">
+                        <h4>🏠 Datang Langsung</h4>
+                        <p>Anda bisa datang langsung ke lokasi kami</p>
+                        <p>Tim kami siap bantu dengan ramah</p>
+                    </div>
                 </div>
             </div>
 
@@ -156,8 +264,7 @@
         <footer>
             <div class="help-center">
                 <h3>Pusat Bantuan</h3>
-                <a href="https://mail.google.com/mail/?view=cm&fs=1&to=fahrilas29124@gmail.com" target="_blank" class="contact-btn">📧 Email</a>
-                <a href="https://wa.me/6281234567890" target="_blank" class="contact-btn">📱 WhatsApp</a>
+                <a href="https://wa.me/085821858088" target="_blank" class="contact-btn">📱 WhatsApp</a>
                 <a href="https://instagram.com/bibitcabai" target="_blank" class="contact-btn">📷 Instagram</a>
             </div>
         </footer>
@@ -165,11 +272,24 @@
         <section id="kelola-section" class="tab-content">
             <h2>Tambah Batch Bibit Baru</h2>
             <form id="batch-form">
-                <label for="quantity">Jumlah Bibit:</label>
-                <input type="number" id="quantity" min="1" required>
-                <label for="plant-date">Tanggal Tanam:</label>
-                <input type="date" id="plant-date" required>
-                <button type="submit">Tambah Batch</button>
+                <div class="form-group">
+                    <label for="batch-name">🪴 Nama Bibit:</label>
+                    <input type="text" id="batch-name" required placeholder="Contoh: Cabai Rawit Merah">
+                    <small class="form-help">Berikan nama yang deskriptif untuk jenis bibit ini</small>
+                </div>
+                <div class="form-group">
+                    <label for="quantity">🔢 Jumlah Bibit:</label>
+                    <input type="number" id="quantity" min="1" required placeholder="Contoh: 100">
+                    <small class="form-help">Jumlah bibit yang akan ditanam</small>
+                </div>
+                <div class="form-group">
+                    <label for="plant-date">📅 Tanggal Tanam:</label>
+                    <input type="date" id="plant-date" required>
+                    <small class="form-help">Tanggal mulai menanam bibit</small>
+                </div>
+                <button type="submit" class="batch-submit-btn">
+                    ➕ Tambah Batch Baru
+                </button>
             </form>
 
             <h2>Batch Bibit Saat Ini</h2>
@@ -198,7 +318,7 @@
             <div class="chili-animation">
                 🌶️🌶️🌶️
             </div>
-            <p>Loading Plantera...</p>
+            <p>Loading Leafy...</p>
         </div>
     </div>
     <div id="notification" class="notification">
