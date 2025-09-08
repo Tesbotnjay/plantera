@@ -935,6 +935,7 @@ async function startServer() {
     }
 
     // Start the server
+    console.log(`Using port: ${PORT}`);
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Server running on port ${PORT}`);
       console.log(`🏥 Health check available at http://localhost:${PORT}/health`);
@@ -970,6 +971,14 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
   // Don't exit process - let Railway restart the container
+});
+
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM, shutting down gracefully');
+  pool.end(() => {
+    console.log('Database pool closed');
+    process.exit(0);
+  });
 });
 
 startServer();
