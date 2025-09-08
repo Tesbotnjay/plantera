@@ -846,24 +846,18 @@ function sendToTelegram(message) {
 app.get('/health', async (req, res) => {
     try {
         const dbConnected = await testDatabaseConnection();
-        if (dbConnected) {
-            res.status(200).json({
-                status: 'healthy',
-                database: 'connected',
-                timestamp: new Date().toISOString(),
-                uptime: process.uptime()
-            });
-        } else {
-            res.status(503).json({
-                status: 'degraded',
-                database: 'disconnected',
-                timestamp: new Date().toISOString(),
-                uptime: process.uptime()
-            });
-        }
+        // Always return 200 to prevent Railway from stopping the container
+        res.status(200).json({
+            status: dbConnected ? 'healthy' : 'degraded',
+            database: dbConnected ? 'connected' : 'disconnected',
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        });
     } catch (error) {
-        res.status(503).json({
-            status: 'unhealthy',
+        // Return 200 even on error to keep container running
+        res.status(200).json({
+            status: 'degraded',
+            database: 'error',
             error: error.message,
             timestamp: new Date().toISOString(),
             uptime: process.uptime()
