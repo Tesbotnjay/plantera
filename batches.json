@@ -14,13 +14,5 @@
     "quantity": 200,
     "stock": 200,
     "readyForSale": false
-  },
-  {
-    "id": 5,
-    "name": "Bibit Cabai Hijau",
-    "plantDate": "2024-06-25",
-    "quantity": 120,
-    "stock": 0,
-    "readyForSale": true
   }
 ]

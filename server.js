@@ -705,8 +705,12 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
 
         // Fallback to file system if database is not available
         try {
+            console.log('📁 Reading batches from file system...');
             const batchesData = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+            console.log('📁 Current batches in file:', batchesData.length);
+
             const batchIndex = batchesData.findIndex(b => b.id === batchId);
+            console.log('📁 Batch index found:', batchIndex, 'for ID:', batchId);
 
             if (batchIndex === -1) {
                 console.log('⚠️ Batch not found in file system');
@@ -714,7 +718,12 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
             }
 
             const deletedBatch = batchesData.splice(batchIndex, 1)[0];
+            console.log('📁 Deleted batch:', deletedBatch);
+
+            // Write the updated data back to file
+            console.log('📁 Writing updated batches to file...');
             fs.writeFileSync(DATA_FILE, JSON.stringify(batchesData, null, 2));
+            console.log('📁 File write successful, remaining batches:', batchesData.length);
 
             console.log('✅ Batch deleted from file system successfully');
             res.json({
@@ -724,7 +733,12 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
             });
         } catch (fileError) {
             console.error('❌ File system delete error:', fileError);
-            res.status(500).json({ error: 'Failed to delete batch from file system' });
+            console.error('❌ Error details:', fileError.message);
+            console.error('❌ Stack trace:', fileError.stack);
+            res.status(500).json({
+                error: 'Failed to delete batch from file system',
+                details: fileError.message
+            });
         }
     } catch (error) {
         console.error('❌ Delete batch endpoint error:', error);
