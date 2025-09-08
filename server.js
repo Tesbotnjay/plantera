@@ -192,30 +192,7 @@ const USERS_FILE = path.join(__dirname, 'users.json');
 const ORDERS_FILE = path.join(__dirname, 'orders.json');
 
 app.use(cors({
-    origin: function (origin, callback) {
-        console.log('CORS origin:', origin);
-        // Allow requests from localhost and common development ports
-        const allowedOrigins = [
-            'http://localhost:3000',
-            'http://localhost:5500',
-            'http://127.0.0.1:3000',
-            'http://127.0.0.1:5500',
-            'http://localhost:8080',
-            'http://127.0.0.1:8080',
-            // Add production domains
-            'https://leafyweb.vercel.app',
-            'https://leafy-web.vercel.app',
-            'https://leafy-gamma.vercel.app',
-            'https://plantera-gamma.vercel.app'
-        ];
-
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            console.log('Origin not in allowed list, but allowing:', origin);
-            callback(null, true); // Allow all for development
-        }
-    },
+    origin: 'https://plantera-gamma.vercel.app',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma']
