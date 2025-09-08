@@ -202,7 +202,8 @@ app.use(cors({
             // Add production domains
             'https://leafyweb.vercel.app',
             'https://leafy-web.vercel.app',
-            'https://leafy-gamma.vercel.app'
+            'https://leafy-gamma.vercel.app',
+            'https://plantera-gamma.vercel.app'
         ];
 
         if (!origin || allowedOrigins.includes(origin)) {
@@ -217,6 +218,11 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.static(__dirname));
+
+// Handle favicon.ico requests
+app.get('/favicon.ico', (req, res) => {
+    res.status(204).end(); // No content response to prevent 404
+});
 
 // PostgreSQL session store with error handling
 let sessionStore;
