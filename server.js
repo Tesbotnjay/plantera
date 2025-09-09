@@ -4,6 +4,7 @@ const session = require('express-session');
 const https = require('https');
 const { neon } = require('@neondatabase/serverless');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
 const path = require('path');
 
 const app = express();
@@ -180,6 +181,7 @@ app.post('/login', async (req, res) => {
     console.log('Login attempt for:', username);
 
     try {
+        // Try database first
         const result = await sql`SELECT username, password, role FROM users WHERE username = ${username}`;
 
         if (result.length > 0) {
@@ -205,12 +207,38 @@ app.post('/login', async (req, res) => {
                 return res.json({ success: false });
             }
         } else {
-            console.log('Login failed: User not found');
+            console.log('Login failed: User not found in database');
+            // If user not found in DB, don't fallback here; assume not exists
             return res.json({ success: false });
         }
-    } catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({ success: false, error: 'Login failed' });
+    } catch (dbError) {
+        console.log('Database failed for login, trying JSON fallback');
+        try {
+            const usersData = JSON.parse(fs.readFileSync(path.join(__dirname, 'users.json'), 'utf8'));
+            const user = usersData.find(u => u.username === username);
+
+            if (user && user.password === password) {
+                // Generate JWT token
+                const token = jwt.sign(
+                    { username: user.username, role: user.role },
+                    JWT_SECRET,
+                    { expiresIn: '24h' }
+                );
+
+                console.log('Login successful from JSON fallback for:', user.username);
+                return res.json({
+                    success: true,
+                    role: user.role,
+                    token: token
+                });
+            } else {
+                console.log('Login failed: User not found or invalid password in JSON');
+                return res.json({ success: false });
+            }
+        } catch (fallbackError) {
+            console.error('JSON fallback failed for login:', fallbackError);
+            res.status(500).json({ success: false, error: 'Login failed' });
+        }
     }
 });
 
@@ -441,13 +469,41 @@ app.get('/batches', async (req, res) => {
         }));
 
         console.log('✅ Serving batches from database:', batchesData.length, 'batches');
-        res.json(batchesData);
+        if (!res.headersSent) {
+            res.json(batchesData);
+        } else {
+            console.log('⚠️ Response already sent for batches (db path)');
+        }
     } catch (dbError) {
-        console.error('❌ Database error for batches:', dbError);
-        res.status(503).json({
-            error: 'Service temporarily unavailable',
-            details: 'Database connection failed - please try again later'
-        });
+        console.log('Database failed for batches, trying JSON fallback');
+        try {
+            const batchesDataRaw = JSON.parse(fs.readFileSync(path.join(__dirname, 'batches.json'), 'utf8'));
+            batchesData = batchesDataRaw.map(b => ({
+                id: b.id,
+                name: b.name,
+                plantDate: b.plantDate,
+                quantity: b.quantity,
+                stock: b.stock,
+                readyForSale: b.readyForSale
+            }));
+
+            console.log('✅ Serving batches from JSON fallback:', batchesData.length, 'batches');
+            if (!res.headersSent) {
+                res.json(batchesData);
+            } else {
+                console.log('⚠️ Response already sent for batches (fallback path)');
+            }
+        } catch (fallbackError) {
+            console.error('❌ JSON fallback error for batches:', fallbackError);
+            if (!res.headersSent) {
+                res.status(503).json({
+                    error: 'Service temporarily unavailable',
+                    details: 'Database and fallback failed - please try again later'
+                });
+            } else {
+                console.log('⚠️ Response already sent for batches (error path)');
+            }
+        }
     }
 });
 
