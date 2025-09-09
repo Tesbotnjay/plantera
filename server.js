@@ -30,6 +30,32 @@ async function testDatabaseConnection() {
   }
 }
 
+let initPromise = null;
+
+async function ensureDbInitialized() {
+  if (!initPromise) {
+    initPromise = testDatabaseConnection()
+      .then(connected => {
+        if (connected) {
+          return initializeDatabase();
+        } else {
+          throw new Error('Database connection test failed');
+        }
+      })
+      .catch(err => {
+        console.error('DB init failed:', err);
+        initPromise = null; // Allow retry on next invocation
+        throw err;
+      });
+  }
+  try {
+    await initPromise;
+  } catch (err) {
+    console.error('Awaiting DB init failed:', err);
+    throw err;
+  }
+}
+
 // Initialize database tables
 async function initializeDatabase() {
   try {
@@ -139,6 +165,25 @@ async function initializeDatabase() {
 
 // Database-only operations - no file system fallbacks
 
+// DB initialization middleware for serverless
+app.use(async (req, res, next) => {
+ if (req.path.startsWith('/_next') || req.path === '/favicon.ico') {
+   return next(); // Skip init for static/internal paths
+ }
+ try {
+   await ensureDbInitialized();
+   next();
+ } catch (err) {
+   console.error('Failed to initialize DB for request:', err);
+   if (!res.headersSent) {
+     res.status(503).json({
+       error: 'Service temporarily unavailable',
+       details: 'Database initialization failed - please try again later'
+     });
+   }
+ }
+});
+
 app.use(cors({
     origin: true, // Allow all origins for Vercel deployment
     credentials: true,
@@ -181,15 +226,12 @@ app.post('/login', async (req, res) => {
     console.log('Login attempt for:', username);
 
     try {
-        // Try database first
         const result = await sql`SELECT username, password, role FROM users WHERE username = ${username}`;
 
         if (result.length > 0) {
             const user = result[0];
 
-            // Check password
             if (user.password === password) {
-                // Generate JWT token
                 const token = jwt.sign(
                     { username: user.username, role: user.role },
                     JWT_SECRET,
@@ -208,37 +250,11 @@ app.post('/login', async (req, res) => {
             }
         } else {
             console.log('Login failed: User not found in database');
-            // If user not found in DB, don't fallback here; assume not exists
             return res.json({ success: false });
         }
     } catch (dbError) {
-        console.log('Database failed for login, trying JSON fallback');
-        try {
-            const usersData = JSON.parse(fs.readFileSync(path.join(__dirname, 'users.json'), 'utf8'));
-            const user = usersData.find(u => u.username === username);
-
-            if (user && user.password === password) {
-                // Generate JWT token
-                const token = jwt.sign(
-                    { username: user.username, role: user.role },
-                    JWT_SECRET,
-                    { expiresIn: '24h' }
-                );
-
-                console.log('Login successful from JSON fallback for:', user.username);
-                return res.json({
-                    success: true,
-                    role: user.role,
-                    token: token
-                });
-            } else {
-                console.log('Login failed: User not found or invalid password in JSON');
-                return res.json({ success: false });
-            }
-        } catch (fallbackError) {
-            console.error('JSON fallback failed for login:', fallbackError);
-            res.status(500).json({ success: false, error: 'Login failed' });
-        }
+        console.error('❌ Database error for login:', dbError.message || dbError);
+        res.status(500).json({ success: false, error: 'Login failed' });
     }
 });
 
@@ -371,7 +387,7 @@ app.get('/orders', async (req, res) => {
         console.log('Orders retrieved from database:', ordersData.length);
         res.json(ordersData);
     } catch (dbError) {
-        console.error('❌ Database error for orders:', dbError);
+        console.error('❌ Database error for orders:', dbError.message || dbError);
         res.status(503).json({
             error: 'Service temporarily unavailable',
             details: 'Database connection failed - please try again later'
@@ -397,7 +413,7 @@ app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
         res.json({ success: true, order: result[0] });
 
     } catch (error) {
-        console.error('Error updating order:', error);
+        console.error('❌ Database error updating order:', error.message || error);
         res.status(503).json({
             error: 'Service temporarily unavailable',
             details: 'Database connection failed - please try again later'
@@ -454,12 +470,9 @@ app.get('/batches', async (req, res) => {
 
     console.log('🔍 Batches endpoint called from:', req.headers.origin || 'unknown origin');
 
-    let batchesData = [];
-
     try {
-        // Try to get data from database first
         const result = await sql`SELECT * FROM batches ORDER BY id`;
-        batchesData = result.map(row => ({
+        const batchesData = result.map(row => ({
             id: row.id,
             name: row.name,
             plantDate: row.plant_date,
@@ -469,41 +482,13 @@ app.get('/batches', async (req, res) => {
         }));
 
         console.log('✅ Serving batches from database:', batchesData.length, 'batches');
-        if (!res.headersSent) {
-            res.json(batchesData);
-        } else {
-            console.log('⚠️ Response already sent for batches (db path)');
-        }
+        res.json(batchesData);
     } catch (dbError) {
-        console.log('Database failed for batches, trying JSON fallback');
-        try {
-            const batchesDataRaw = JSON.parse(fs.readFileSync(path.join(__dirname, 'batches.json'), 'utf8'));
-            batchesData = batchesDataRaw.map(b => ({
-                id: b.id,
-                name: b.name,
-                plantDate: b.plantDate,
-                quantity: b.quantity,
-                stock: b.stock,
-                readyForSale: b.readyForSale
-            }));
-
-            console.log('✅ Serving batches from JSON fallback:', batchesData.length, 'batches');
-            if (!res.headersSent) {
-                res.json(batchesData);
-            } else {
-                console.log('⚠️ Response already sent for batches (fallback path)');
-            }
-        } catch (fallbackError) {
-            console.error('❌ JSON fallback error for batches:', fallbackError);
-            if (!res.headersSent) {
-                res.status(503).json({
-                    error: 'Service temporarily unavailable',
-                    details: 'Database and fallback failed - please try again later'
-                });
-            } else {
-                console.log('⚠️ Response already sent for batches (error path)');
-            }
-        }
+        console.error('❌ Database error for batches:', dbError.message || dbError);
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            details: 'Database connection failed - please try again later'
+        });
     }
 });
 
@@ -536,7 +521,7 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Delete batch endpoint error:', error);
+        console.error('❌ Database error deleting batch:', error.message || error);
         res.status(503).json({
             error: 'Service temporarily unavailable',
             details: 'Database connection failed - please try again later'
@@ -574,7 +559,7 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Database error saving batches:', error);
+        console.error('❌ Database error saving batches:', error.message || error);
         res.status(503).json({
             error: 'Service temporarily unavailable',
             details: 'Database connection failed - please try again later'
@@ -660,7 +645,7 @@ app.post('/order', async (req, res) => {
             userType: authenticatedUser ? 'authenticated' : 'guest'
         });
     } catch (error) {
-        console.error('Error saving order:', error);
+        console.error('❌ Database error saving order:', error.message || error);
         res.status(500).json({ success: false, error: 'Failed to save order' });
     }
 });
