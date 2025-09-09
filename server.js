@@ -6,7 +6,7 @@ const { Pool } = require('pg');
 const PgSession = require('connect-pg-simple')(session);
 const jwt = require('jsonwebtoken');
 const path = require('path');
-const fs = require('fs');
+const fallbackBatches = require('./batches.json');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -526,30 +526,19 @@ app.get('/batches', async (req, res) => {
         console.log('✅ Serving batches from database:', batchesData.length, 'batches');
     } catch (dbError) {
         console.error('❌ Database error for batches:', dbError);
-        console.log('🔄 Falling back to batches.json file...');
+        console.log('🔄 Falling back to embedded batches data...');
 
-        try {
-            // Fallback to reading from JSON file
-            const jsonData = fs.readFileSync('./batches.json', 'utf8');
-            const fileBatches = JSON.parse(jsonData);
-            batchesData = fileBatches.map(batch => ({
-                id: batch.id,
-                name: batch.name,
-                plantDate: batch.plantDate,
-                quantity: batch.quantity,
-                stock: batch.stock,
-                readyForSale: batch.readyForSale
-            }));
+        // Map fallback data to match response format
+        batchesData = fallbackBatches.map(batch => ({
+            id: batch.id,
+            name: batch.name,
+            plantDate: batch.plantDate,
+            quantity: batch.quantity,
+            stock: batch.stock,
+            readyForSale: batch.readyForSale
+        }));
 
-            console.log('✅ Serving batches from file:', batchesData.length, 'batches');
-        } catch (fileError) {
-            console.error('❌ File fallback error:', fileError);
-            res.status(500).json({
-                error: 'Unable to fetch batches data',
-                details: 'Both database and file fallback failed'
-            });
-            return;
-        }
+        console.log('✅ Serving batches from fallback data:', batchesData.length, 'batches');
     }
 
     res.json(batchesData);
