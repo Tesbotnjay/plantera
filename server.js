@@ -7,6 +7,7 @@ const PgSession = require('connect-pg-simple')(session);
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const fallbackBatches = require('./batches.json');
+const fallbackOrders = require('./orders.json');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -381,6 +382,8 @@ app.get('/orders', async (req, res) => {
         orderId: orderId || 'not provided'
     });
 
+    let ordersData = [];
+
     try {
         let query = 'SELECT * FROM orders WHERE 1=1';
         let params = [];
@@ -408,7 +411,7 @@ app.get('/orders', async (req, res) => {
         }
 
         const result = await pool.query(query, params);
-        const ordersData = result.rows.map(row => ({
+        ordersData = result.rows.map(row => ({
             id: row.id,
             userId: row.user_id,
             batchId: row.batch_id,
@@ -424,11 +427,44 @@ app.get('/orders', async (req, res) => {
         }));
 
         console.log('Orders retrieved from database:', ordersData.length);
-        res.json(ordersData);
-    } catch (error) {
-        console.error('Orders error:', error);
-        res.status(500).json({ error: 'Unable to fetch orders data' });
+    } catch (dbError) {
+        console.error('❌ Database error for orders:', dbError);
+        console.log('🔄 Falling back to orders.json file...');
+
+        // Fallback to embedded orders data
+        ordersData = fallbackOrders.map(order => ({
+            id: order.id,
+            userId: order.user_id || order.userId,
+            batchId: order.batch_id || order.batchId,
+            quantity: order.quantity,
+            phone: order.phone,
+            address: order.address,
+            delivery: order.delivery,
+            payment: order.payment,
+            status: order.status,
+            orderDate: order.order_date || order.orderDate,
+            totalPrice: order.total_price || order.totalPrice,
+            lastUpdated: order.last_updated || order.lastUpdated
+        })).filter(order => {
+            // Apply the same filtering logic as in DB query
+            if (authenticatedUser) {
+                if (authenticatedUser.role === 'admin') {
+                    return true; // Admin sees all
+                } else {
+                    return order.userId === authenticatedUser.username;
+                }
+            } else if (phone) {
+                return order.phone === phone;
+            } else if (orderId) {
+                return order.id === orderId;
+            }
+            return false;
+        });
+
+        console.log('✅ Serving orders from fallback data:', ordersData.length, 'orders');
     }
+
+    res.json(ordersData);
 });
 
 // Update order status (admin only, database only)
@@ -453,9 +489,9 @@ app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
 
     } catch (error) {
         console.error('Error updating order:', error);
-        res.status(500).json({
-            error: 'Failed to update order',
-            details: error.message
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            details: 'Database connection failed - please try again later'
         });
     }
 });
@@ -574,9 +610,9 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
 
     } catch (error) {
         console.error('❌ Delete batch endpoint error:', error);
-        res.status(500).json({
-            error: 'Unable to delete batch',
-            details: error.message
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            details: 'Database connection failed - please try again later'
         });
     }
 });
@@ -615,9 +651,9 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
 
     } catch (error) {
         console.error('❌ Database error saving batches:', error);
-        res.status(500).json({
-            error: 'Failed to save data',
-            details: error.message
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            details: 'Database connection failed - please try again later'
         });
     }
 });
