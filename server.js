@@ -6,6 +6,7 @@ const { Pool } = require('pg');
 const PgSession = require('connect-pg-simple')(session);
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -508,10 +509,12 @@ app.get('/batches', async (req, res) => {
 
     console.log('🔍 Batches endpoint called from:', req.headers.origin || 'unknown origin');
 
+    let batchesData = [];
+
     try {
-        // Get data from database only
+        // Try to get data from database first
         const result = await pool.query('SELECT * FROM batches ORDER BY id');
-        const batchesData = result.rows.map(row => ({
+        batchesData = result.rows.map(row => ({
             id: row.id,
             name: row.name,
             plantDate: row.plant_date,
@@ -521,15 +524,35 @@ app.get('/batches', async (req, res) => {
         }));
 
         console.log('✅ Serving batches from database:', batchesData.length, 'batches');
-        res.json(batchesData);
+    } catch (dbError) {
+        console.error('❌ Database error for batches:', dbError);
+        console.log('🔄 Falling back to batches.json file...');
 
-    } catch (error) {
-        console.error('❌ Batches endpoint error:', error);
-        res.status(500).json({
-            error: 'Unable to fetch batches data',
-            details: error.message
-        });
+        try {
+            // Fallback to reading from JSON file
+            const jsonData = fs.readFileSync('./batches.json', 'utf8');
+            const fileBatches = JSON.parse(jsonData);
+            batchesData = fileBatches.map(batch => ({
+                id: batch.id,
+                name: batch.name,
+                plantDate: batch.plantDate,
+                quantity: batch.quantity,
+                stock: batch.stock,
+                readyForSale: batch.readyForSale
+            }));
+
+            console.log('✅ Serving batches from file:', batchesData.length, 'batches');
+        } catch (fileError) {
+            console.error('❌ File fallback error:', fileError);
+            res.status(500).json({
+                error: 'Unable to fetch batches data',
+                details: 'Both database and file fallback failed'
+            });
+            return;
+        }
     }
+
+    res.json(batchesData);
 });
 
 // Delete batch (admin only, database only)
