@@ -2,12 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const session = require('express-session');
 const https = require('https');
-const { Pool } = require('pg');
-const PgSession = require('connect-pg-simple')(session);
+const { neon } = require('@neondatabase/serverless');
 const jwt = require('jsonwebtoken');
 const path = require('path');
-const fallbackBatches = require('./batches.json');
-const fallbackOrders = require('./orders.json');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -15,33 +12,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'leafy-jwt-secret-key-2024';
 
 console.log('PORT env:', process.env.PORT);
 
-// PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  // Add connection timeout and retry settings for Vercel
-  connectionTimeoutMillis: 5000,
-  query_timeout: 10000,
-  idleTimeoutMillis: 30000,
-  max: 10
-});
+// Neon connection
+const sql = neon(process.env.DATABASE_URL);
 
 // Test database connection
-pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL database');
-});
-
-pool.on('error', (err) => {
-  console.error('❌ Unexpected error on idle client:', err);
-  // Don't exit process immediately - let the server try to recover
-});
 
 // Test database connectivity
 async function testDatabaseConnection() {
   try {
-    const client = await pool.connect();
+    const result = await sql`SELECT version()`;
     console.log('✅ Database connection test successful');
-    client.release();
     return true;
   } catch (error) {
     console.error('❌ Database connection test failed:', error);
@@ -56,14 +36,14 @@ async function initializeDatabase() {
 
     // Create users table
     try {
-      await pool.query(`
+      await sql`
         CREATE TABLE IF NOT EXISTS users (
           username VARCHAR(50) PRIMARY KEY,
           password VARCHAR(255) NOT NULL,
           role VARCHAR(20) NOT NULL DEFAULT 'customer',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-      `);
+      `;
       console.log('Users table ready');
     } catch (error) {
       console.error('Error creating users table:', error);
@@ -72,7 +52,7 @@ async function initializeDatabase() {
 
     // Create batches table
     try {
-      await pool.query(`
+      await sql`
         CREATE TABLE IF NOT EXISTS batches (
           id SERIAL PRIMARY KEY,
           name VARCHAR(100) NOT NULL DEFAULT 'Bibit Cabai',
@@ -82,13 +62,13 @@ async function initializeDatabase() {
           ready_for_sale BOOLEAN DEFAULT FALSE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-      `);
+      `;
 
       // Add name column if it doesn't exist (for existing databases)
       try {
-        await pool.query(`
+        await sql`
           ALTER TABLE batches ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'Bibit Cabai'
-        `);
+        `;
       } catch (alterError) {
         console.log('Name column already exists or alter failed (this is normal for new databases)');
       }
@@ -101,7 +81,7 @@ async function initializeDatabase() {
 
     // Create orders table
     try {
-      await pool.query(`
+      await sql`
         CREATE TABLE IF NOT EXISTS orders (
           id VARCHAR(50) PRIMARY KEY,
           user_id VARCHAR(50) NOT NULL,
@@ -116,67 +96,31 @@ async function initializeDatabase() {
           total_price INTEGER NOT NULL,
           last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-      `);
+      `;
       console.log('Orders table ready');
     } catch (error) {
       console.error('Error creating orders table:', error);
       throw error;
     }
 
-    // Create session table for connect-pg-simple
-    try {
-      // First, create the table if it doesn't exist
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS session (
-          sid VARCHAR NOT NULL COLLATE "default",
-          sess JSON NOT NULL,
-          expire TIMESTAMP(6) NOT NULL
-        ) WITH (OIDS=FALSE);
-      `);
-      console.log('Session table created');
-
-      // Create index if it doesn't exist
-      await pool.query(`
-        CREATE INDEX IF NOT EXISTS IDX_session_expire ON session(expire);
-      `);
-      console.log('Session index created');
-
-      // Add primary key constraint only if it doesn't exist
-      const constraintExists = await pool.query(`
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE constraint_name = 'session_pkey' AND table_name = 'session';
-      `);
-
-      if (constraintExists.rows.length === 0) {
-        await pool.query(`
-          ALTER TABLE session ADD CONSTRAINT session_pkey PRIMARY KEY (sid) NOT DEFERRABLE INITIALLY IMMEDIATE;
-        `);
-        console.log('Session primary key constraint added');
-      } else {
-        console.log('Session primary key constraint already exists');
-      }
-
-    } catch (error) {
-      console.error('Error creating session table:', error);
-      // Don't throw error for session table - continue with server startup
-      console.log('Continuing without session table - using memory store');
-    }
+    // Session table not supported well with Neon serverless; skip and use memory store
+    console.log('Skipping session table - using memory store for Neon');
 
     // Insert default users
     try {
       // Insert default admin user if not exists
-      await pool.query(`
+      await sql`
         INSERT INTO users (username, password, role)
         VALUES ('sulvianti', 'wongirengjembuten69', 'admin')
         ON CONFLICT (username) DO NOTHING
-      `);
+      `;
 
       // Insert default customer user if not exists
-      await pool.query(`
+      await sql`
         INSERT INTO users (username, password, role)
         VALUES ('customer', 'customer123', 'customer')
         ON CONFLICT (username) DO NOTHING
-      `);
+      `;
 
       console.log('Default users created');
     } catch (error) {
@@ -213,32 +157,17 @@ app.get('/favicon.ico', (req, res) => {
     res.status(204).end(); // No content response to prevent 404
 });
 
-// PostgreSQL session store with error handling
-let sessionStore;
-try {
-    sessionStore = new PgSession({
-        pool: pool,
-        tableName: 'session',
-        createTableIfMissing: false // We create it manually above
-    });
-    console.log('PostgreSQL session store initialized');
-} catch (error) {
-    console.error('Failed to initialize PostgreSQL session store:', error);
-    console.log('Falling back to memory session store');
-    sessionStore = null; // Will use default memory store
-}
-
-// Enhanced session configuration with fallback
+// Use memory session store for Neon (connect-pg-simple not compatible with serverless)
 app.use(session({
-    store: sessionStore || undefined, // Use PostgreSQL store if available, otherwise memory store
+    store: undefined, // Default to memory store
     secret: process.env.SESSION_SECRET || 'leafy-secret-key-2024',
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // Set to false for Railway (internal communication)
+        secure: false, // Set to false for local/Vercel
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: 'lax' // Changed to lax for Railway
+        sameSite: 'lax'
     },
     name: 'leafy.sid'
 }));
@@ -251,13 +180,10 @@ app.post('/login', async (req, res) => {
     console.log('Login attempt for:', username);
 
     try {
-        const result = await pool.query(
-            'SELECT username, password, role FROM users WHERE username = $1',
-            [username]
-        );
+        const result = await sql`SELECT username, password, role FROM users WHERE username = ${username}`;
 
-        if (result.rows.length > 0) {
-            const user = result.rows[0];
+        if (result.length > 0) {
+            const user = result[0];
 
             // Check password
             if (user.password === password) {
@@ -304,20 +230,14 @@ app.post('/register', async (req, res) => {
 
     try {
         // Check if user already exists
-        const existingUser = await pool.query(
-            'SELECT username FROM users WHERE username = $1',
-            [username]
-        );
+        const existingUser = await sql`SELECT username FROM users WHERE username = ${username}`;
 
-        if (existingUser.rows.length > 0) {
+        if (existingUser.length > 0) {
             return res.json({ success: false, message: 'Username sudah digunakan' });
         }
 
         // Insert new user
-        await pool.query(
-            'INSERT INTO users (username, password, role) VALUES ($1, $2, $3)',
-            [username, password, role]
-        );
+        await sql`INSERT INTO users (username, password, role) VALUES (${username}, ${password}, ${role})`;
 
         console.log('User registered successfully in database:', username);
 
@@ -385,33 +305,27 @@ app.get('/orders', async (req, res) => {
     let ordersData = [];
 
     try {
-        let query = 'SELECT * FROM orders WHERE 1=1';
-        let params = [];
-
+        let result;
         if (authenticatedUser) {
             if (authenticatedUser.role === 'admin') {
                 // Admin sees all orders
-                query += ' ORDER BY order_date DESC';
+                result = await sql`SELECT * FROM orders ORDER BY order_date DESC`;
             } else {
                 // Regular user sees their orders
-                query += ' AND user_id = $1 ORDER BY order_date DESC';
-                params = [authenticatedUser.username];
+                result = await sql`SELECT * FROM orders WHERE user_id = ${authenticatedUser.username} ORDER BY order_date DESC`;
             }
         } else if (phone) {
             // Guest lookup by phone
-            query += ' AND phone = $1 ORDER BY order_date DESC';
-            params = [phone];
+            result = await sql`SELECT * FROM orders WHERE phone = ${phone} ORDER BY order_date DESC`;
         } else if (orderId) {
             // Guest lookup by order ID
-            query += ' AND id = $1 ORDER BY order_date DESC';
-            params = [orderId];
+            result = await sql`SELECT * FROM orders WHERE id = ${orderId} ORDER BY order_date DESC`;
         } else {
             // No valid lookup method
             return res.json([]);
         }
 
-        const result = await pool.query(query, params);
-        ordersData = result.rows.map(row => ({
+        ordersData = result.map(row => ({
             id: row.id,
             userId: row.user_id,
             batchId: row.batch_id,
@@ -429,39 +343,10 @@ app.get('/orders', async (req, res) => {
         console.log('Orders retrieved from database:', ordersData.length);
     } catch (dbError) {
         console.error('❌ Database error for orders:', dbError);
-        console.log('🔄 Falling back to orders.json file...');
-
-        // Fallback to embedded orders data
-        ordersData = fallbackOrders.map(order => ({
-            id: order.id,
-            userId: order.user_id || order.userId,
-            batchId: order.batch_id || order.batchId,
-            quantity: order.quantity,
-            phone: order.phone,
-            address: order.address,
-            delivery: order.delivery,
-            payment: order.payment,
-            status: order.status,
-            orderDate: order.order_date || order.orderDate,
-            totalPrice: order.total_price || order.totalPrice,
-            lastUpdated: order.last_updated || order.lastUpdated
-        })).filter(order => {
-            // Apply the same filtering logic as in DB query
-            if (authenticatedUser) {
-                if (authenticatedUser.role === 'admin') {
-                    return true; // Admin sees all
-                } else {
-                    return order.userId === authenticatedUser.username;
-                }
-            } else if (phone) {
-                return order.phone === phone;
-            } else if (orderId) {
-                return order.id === orderId;
-            }
-            return false;
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            details: 'Database connection failed - please try again later'
         });
-
-        console.log('✅ Serving orders from fallback data:', ordersData.length, 'orders');
     }
 
     res.json(ordersData);
@@ -475,17 +360,14 @@ app.put('/orders/:orderId', verifyToken, requireAdmin, async (req, res) => {
     console.log('Updating order', orderId, 'to status:', status);
 
     try {
-        const result = await pool.query(
-            'UPDATE orders SET status = $1, last_updated = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-            [status, orderId]
-        );
+        const result = await sql`UPDATE orders SET status = ${status}, last_updated = CURRENT_TIMESTAMP WHERE id = ${orderId} RETURNING *`;
 
-        if (result.rows.length === 0) {
+        if (result.length === 0) {
             return res.status(404).json({ error: 'Order not found' });
         }
 
         console.log('Order', orderId, 'updated successfully to', status);
-        res.json({ success: true, order: result.rows[0] });
+        res.json({ success: true, order: result[0] });
 
     } catch (error) {
         console.error('Error updating order:', error);
@@ -549,8 +431,8 @@ app.get('/batches', async (req, res) => {
 
     try {
         // Try to get data from database first
-        const result = await pool.query('SELECT * FROM batches ORDER BY id');
-        batchesData = result.rows.map(row => ({
+        const result = await sql`SELECT * FROM batches ORDER BY id`;
+        batchesData = result.map(row => ({
             id: row.id,
             name: row.name,
             plantDate: row.plant_date,
@@ -562,19 +444,10 @@ app.get('/batches', async (req, res) => {
         console.log('✅ Serving batches from database:', batchesData.length, 'batches');
     } catch (dbError) {
         console.error('❌ Database error for batches:', dbError);
-        console.log('🔄 Falling back to embedded batches data...');
-
-        // Map fallback data to match response format
-        batchesData = fallbackBatches.map(batch => ({
-            id: batch.id,
-            name: batch.name,
-            plantDate: batch.plantDate,
-            quantity: batch.quantity,
-            stock: batch.stock,
-            readyForSale: batch.readyForSale
-        }));
-
-        console.log('✅ Serving batches from fallback data:', batchesData.length, 'batches');
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            details: 'Database connection failed - please try again later'
+        });
     }
 
     res.json(batchesData);
@@ -593,10 +466,10 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
 
     try {
         // Delete from database
-        const result = await pool.query('DELETE FROM batches WHERE id = $1 RETURNING *', [batchId]);
-        console.log('✅ Database delete result:', result.rows.length, 'rows affected');
+        const result = await sql`DELETE FROM batches WHERE id = ${batchId} RETURNING *`;
+        console.log('✅ Database delete result:', result.length, 'rows affected');
 
-        if (result.rows.length === 0) {
+        if (result.length === 0) {
             console.log('⚠️ Batch not found in database');
             return res.status(404).json({ error: 'Batch not found' });
         }
@@ -605,7 +478,7 @@ app.delete('/batches/:id', verifyToken, requireAdmin, async (req, res) => {
         res.json({
             success: true,
             message: 'Batch deleted successfully',
-            deletedBatch: result.rows[0]
+            deletedBatch: result[0]
         });
 
     } catch (error) {
@@ -631,15 +504,12 @@ app.post('/batches', verifyToken, requireAdmin, async (req, res) => {
 
     try {
         // Clear existing batches
-        await pool.query('DELETE FROM batches');
+        await sql`DELETE FROM batches`;
         console.log('🗑️ Cleared existing batches from database');
 
         // Insert new batches
         for (const batch of batches) {
-            await pool.query(
-                'INSERT INTO batches (id, name, plant_date, quantity, stock, ready_for_sale) VALUES ($1, $2, $3, $4, $5, $6)',
-                [batch.id, batch.name || 'Bibit Cabai', batch.plantDate, batch.quantity, batch.stock, batch.readyForSale]
-            );
+            await sql`INSERT INTO batches (id, name, plant_date, quantity, stock, ready_for_sale) VALUES (${batch.id}, ${batch.name || 'Bibit Cabai'}, ${batch.plantDate}, ${batch.quantity}, ${batch.stock}, ${batch.readyForSale})`;
         }
 
         console.log('✅ Data saved successfully to database');
@@ -713,16 +583,10 @@ app.post('/order', async (req, res) => {
 
     try {
         // Insert order into database
-        await pool.query(
-            'INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-            [order.id, order.userId, order.batchId, order.quantity, order.phone, order.address, order.delivery, order.payment, order.status, order.orderDate, order.totalPrice]
-        );
+        await sql`INSERT INTO orders (id, user_id, batch_id, quantity, phone, address, delivery, payment, status, order_date, total_price) VALUES (${order.id}, ${order.userId}, ${order.batchId}, ${order.quantity}, ${order.phone}, ${order.address}, ${order.delivery}, ${order.payment}, ${order.status}, ${order.orderDate}, ${order.totalPrice})`;
 
         // Update batch stock
-        await pool.query(
-            'UPDATE batches SET stock = stock - $1 WHERE id = $2',
-            [order.quantity, order.batchId]
-        );
+        await sql`UPDATE batches SET stock = stock - ${order.quantity} WHERE id = ${order.batchId}`;
 
         console.log('Order saved successfully to database for user:', order.userId);
 
@@ -877,10 +741,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('SIGTERM', () => {
   console.log('Received SIGTERM, shutting down gracefully');
-  pool.end(() => {
-    console.log('Database pool closed');
-    process.exit(0);
-  });
+  process.exit(0);
 });
 
 module.exports = app;
