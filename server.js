@@ -441,6 +441,7 @@ app.get('/batches', async (req, res) => {
         }));
 
         console.log('✅ Serving batches from database:', batchesData.length, 'batches');
+        res.json(batchesData);
     } catch (dbError) {
         console.error('❌ Database error for batches:', dbError);
         res.status(503).json({
@@ -448,8 +449,6 @@ app.get('/batches', async (req, res) => {
             details: 'Database connection failed - please try again later'
         });
     }
-
-    res.json(batchesData);
 });
 
 // Delete batch (admin only, database only)
