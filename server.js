@@ -341,6 +341,7 @@ app.get('/orders', async (req, res) => {
         }));
 
         console.log('Orders retrieved from database:', ordersData.length);
+        res.json(ordersData);
     } catch (dbError) {
         console.error('❌ Database error for orders:', dbError);
         res.status(503).json({
@@ -348,8 +349,6 @@ app.get('/orders', async (req, res) => {
             details: 'Database connection failed - please try again later'
         });
     }
-
-    res.json(ordersData);
 });
 
 // Update order status (admin only, database only)
