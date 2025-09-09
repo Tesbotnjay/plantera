@@ -5,6 +5,7 @@ const https = require('https');
 const { Pool } = require('pg');
 const PgSession = require('connect-pg-simple')(session);
 const jwt = require('jsonwebtoken');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
